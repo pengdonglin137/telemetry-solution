@@ -176,6 +176,8 @@ spe-parser:
   parallel:
     matrix:
       - PYENV: 
+        - py314
+        - py313
         - py312
         - py311
         - py310
