@@ -245,7 +245,10 @@ class CmnProbeFactory(Base.ProbeFactory):
         Returns:
             bool: If there is at least one CMN present
         """
-        self.cmns = perf_factory.get_cmn_version()
+        try:
+            self.cmns = perf_factory.get_cmn_version()
+        except RuntimeError:
+            return False
         return len(self.cmns) > 0
 
     def _get_config_builder(self) -> Base.ProbeFactoryCliConfigBuilder[CmnProbeFactoryConfig]:
