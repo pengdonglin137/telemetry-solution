@@ -12,6 +12,7 @@ workflow:
     - if: $CI_PIPELINE_SOURCE == "web"
 
 stages:
+  - pre-check
   - docker-check
   - prepare
   - build-and-test
@@ -24,6 +25,57 @@ variables:
   ARTIFACTORY_REGISTRY_URL: "${DOCKER_REGISTRY_KEY}.${ARTIFACTORY_HOST}"
   REGISTRY_IMAGE_X86_64: "${ARTIFACTORY_REGISTRY_URL}/telemetry-solution-x86_64:$CI_COMMIT_REF_SLUG" # Not in use at the moment
   REGISTRY_IMAGE_AARCH64: "${ARTIFACTORY_REGISTRY_URL}/telemetry-solution-aarch64:$CI_COMMIT_REF_SLUG"    
+
+commit-message-check:
+  stage: pre-check
+  tags: [linux_x86_64]
+  image: python:3.10.18-bullseye
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: always
+      allow_failure: false
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: never
+  script:
+    - |
+      set -euo pipefail
+
+      echo "Checking commit messages in MR !${CI_MERGE_REQUEST_IID}"
+
+      RANGE="${CI_MERGE_REQUEST_DIFF_BASE_SHA}..${CI_COMMIT_SHA}"
+      echo "Commit range: ${RANGE}"
+
+      commits="$(git rev-list --reverse "${RANGE}")"
+
+      if [ -z "${commits}" ]; then
+        echo "No commits found in MR range"
+        exit 0
+      fi
+
+      failed=0
+
+      for sha in ${commits}; do
+        short_sha="$(git rev-parse --short "${sha}")"
+        headline="$(git log -1 --format=%s "${sha}")"
+        echo "Validating commit ${short_sha}: ${headline}"      
+
+        tmpfile="$(mktemp)"
+        git log -1 --format=%B "${sha}" > "${tmpfile}"
+
+        if ! python .ci/commit-msg-checker.py "${tmpfile}"; then
+          failed=1
+        fi
+
+        rm -f "${tmpfile}"
+      done
+
+      if [ "${failed}" -ne 0 ]; then
+        echo
+        echo "Commit message validation failed."
+        exit 1
+      fi
+
+      echo "All commit messages are valid."
 
 # check-docker-tag validates if the docker image is available in artifactory.
 # It sets the variable DOCKER_IMAGE_NOT_PRESENT_IN_REGISTRY which is shared
