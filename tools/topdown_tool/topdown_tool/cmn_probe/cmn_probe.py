@@ -104,7 +104,7 @@ class GroupData(TypedDict):
 
 # pylint: disable=too-many-instance-attributes
 class CmnProbe(Base.Probe):
-    # pylint: disable=too-many-arguments, too-many-branches, too-many-statements, too-many-positional-arguments, broad-exception-raised
+    # pylint: disable=too-many-arguments, too-many-branches, too-many-statements, too-many-positional-arguments, broad-exception-raised, too-many-locals
     def __init__(
         self,
         conf: CmnProbeFactoryConfig,
@@ -201,6 +201,38 @@ class CmnProbe(Base.Probe):
             self.topdown_metrics_capture = True
         else:
             topdown_metrics_to_collect = None
+
+        if self.conf.metrics is not None:
+            if self.topdown_metrics_to_collect is not None and len(self.topdown_metrics_to_collect) > 0:
+                printable_metrics: Dict[str, bool] = {}
+                for topdown_group_details in self.topdown_metrics_to_collect.values():
+                    for metric, printable in topdown_group_details.items():
+                        if metric not in printable_metrics:
+                            printable_metrics[metric] = printable
+                        else:
+                            printable_metrics[metric] |= printable
+                self.topdown_metrics_to_collect = {"Topdown Metrics": printable_metrics}
+
+            if topdown_metrics_to_collect is not None and len(topdown_metrics_to_collect) > 0:
+                self.topdown_metrics_capture = True
+                unique_topdown_metrics_to_collect: Set[str] = set()
+                for topdown_group_metrics in topdown_metrics_to_collect.values():
+                    unique_topdown_metrics_to_collect.update(topdown_group_metrics)
+                topdown_metrics_to_collect = {"Topdown Metrics": tuple(unique_topdown_metrics_to_collect)}
+            else:
+                topdown_metrics_to_collect = None
+
+            if len(self.collectable_base_metrics_for_topdown_groups) > 0:
+                unique_collectable_base_metrics: Set[str] = set()
+                for base_metrics in self.collectable_base_metrics_for_topdown_groups.values():
+                    unique_collectable_base_metrics.update(base_metrics)
+                self.collectable_base_metrics_for_topdown_groups = {"Topdown Metrics": tuple(unique_collectable_base_metrics)}
+
+            if metrics_to_collect is not None and len(metrics_to_collect) > 0:
+                unique_metrics_to_collect: Set[str] = set()
+                for base_group in metrics_to_collect.values():
+                    unique_metrics_to_collect.update(base_group)
+                metrics_to_collect = {"Regular Metrics": tuple(unique_metrics_to_collect)}
 
         if self.topdown_metrics_capture and self.base_metrics_capture:
             assert isinstance(topdown_metrics_to_collect, dict)
@@ -1120,7 +1152,7 @@ class CmnProbe(Base.Probe):
                         )
                 if rows:
                     table = SplitTable(
-                        header_row_prefix, ["Value"], ["Units"], self.database.get_topdown_group_title(group_name)
+                        header_row_prefix, ["Value"], ["Units"], self.database.get_topdown_group_title(group_name) if self.conf.metrics is None else "Topdown Metrics"
                     )
                     for row in sorted(rows, key=lambda row: row[0].lower()):
                         row_prefix = [row[0], row[1]] if self.conf.descriptions else [row[0]]
@@ -1266,7 +1298,7 @@ class CmnProbe(Base.Probe):
                         header_row_prefix,
                         header_row_data,
                         header_row_suffix,
-                        self.database.get_topdown_group_title(group_name) if self.group_data[group_name]["topdown_group"] else self.database.get_group_title(group_name)
+                        (self.database.get_topdown_group_title(group_name) if self.group_data[group_name]["topdown_group"] else self.database.get_group_title(group_name)) if self.conf.metrics is None else "Regular Metrics"
                     )
                     for metric_name, metric in device_group.items():
                         # Data
