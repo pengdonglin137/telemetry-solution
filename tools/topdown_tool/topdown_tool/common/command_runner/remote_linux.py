@@ -118,9 +118,6 @@ class _RemoteLinuxProcess(ManagedProcess):
         if self._gate_released:
             return
 
-        # Ensure the wrapper is running (devlib's helper devlib-signal-target stops it via SIGSTOP).
-        self._send_signal("CONT")
-
         if self._gate_path:
             try:
                 script = f"printf '1\\n' > {shlex.quote(self._gate_path)}"
@@ -139,6 +136,8 @@ class _RemoteLinuxProcess(ManagedProcess):
                 )
                 self._cleanup_gate()
                 raise RuntimeError("Failed to release remote start gate") from exc
+        else:
+            self._send_signal("CONT")
 
         self._gate_released = True
 
@@ -210,7 +209,7 @@ class RemoteLinuxCommandRunner:
     # pylint: disable=inconsistent-return-statements, duplicate-code
     def spawn(self, command: List[str]) -> ManagedProcess:
         """
-        Spawn the command on the target in a STOPPED state and return a ManagedProcess.
+        Spawn the command on the target in a paused state and return a ManagedProcess.
 
         This mirrors local semantics: the process is created but paused via a FIFO
         so probes can be armed before start(). When the target does not support
@@ -221,7 +220,7 @@ class RemoteLinuxCommandRunner:
 
         cmd_str = " ".join(shlex.quote(arg) for arg in command)
 
-        # Wrapper: stop the shell immediately, then exec the real command.
+        # Wrapper: pause the shell immediately, then exec the real command.
         # Prefer busybox sh for consistent behavior on Android.
         bb = self._has_busybox()
         shell = f"{bb} sh" if bb else "sh"
@@ -235,7 +234,6 @@ class RemoteLinuxCommandRunner:
 
         if gate_path:
             wrapper_body = (
-                f"kill -STOP $$; "
                 f"read _ < {shlex.quote(gate_path)}; "
                 f"rm -f {shlex.quote(gate_path)}; "
                 f"exec {cmd_str}"
