@@ -9,7 +9,7 @@ import sys
 from argparse import ArgumentParser
 from csv import reader
 from glob import glob
-from os import remove, rename
+from os import remove, rename, rmdir
 from os.path import basename, join
 from pathlib import Path
 from statistics import mean
@@ -62,12 +62,12 @@ def main() -> None:
     parser.add_argument(
         "--collect-by", type=str, help='When multiplexing, collect events grouped by "none", "metric" (default), or "group". This can avoid comparing data collected during different time periods.'
     )
-    
+
     parser.add_argument("-o", "--output", help="Output directory")
     args = parser.parse_args()
 
     script_directory_path = Path(__file__).parent.absolute()
-    ustress_path = script_directory_path.parent.joinpath("ustress").absolute()
+    ustress_path = script_directory_path.parent.parent.joinpath("benchmarks", "ustress").absolute()
 
     if args.output is not None:
         dataset_path = Path(args.output)
@@ -80,11 +80,14 @@ def main() -> None:
         for n in range(args.run):
             cmd: List[Union[Path, str]] = [
                 "topdown-tool",
-                "-v",
+                "--log-level",
+                "info",
                 "--core",
                 str(args.core),
-                "--cpu-csv",
+                "--csv-output-path",
                 dataset_path,
+                "--cpu-generate-csv",
+                "metrics",
             ]
             if args.cpu is not None:
                 cmd.extend(["--cpu", args.cpu])
@@ -115,15 +118,19 @@ def main() -> None:
                     glob("perf.stat.cpu.*.*.txt-*")[0]
                 ).split(".")[3]
             for perf_file in glob("perf.stat.cpu.*.*.txt-*"):
-                slice = basename(perf_file).split("-")[-1]
+                slice = basename(perf_file).split(".")[-2]
                 shutil.copyfile(
                     perf_file,
                     join(dataset_path, f"perf_{workload}_cpu{args.core}_run{n}.{slice}.txt")
                 )
+            newest_dir = max((d for d in dataset_path.iterdir() if d.is_dir()), key=lambda d: d.stat().st_mtime)
+            cpu_dir = join(newest_dir, "cpu")
             rename(
-                join(dataset_path, f"core_{args.core}.csv"),
+                join(cpu_dir, f"{cpu_name}_core_{args.core}_metrics.csv"),
                 join(dataset_path, f"dataset_{workload}_cpu{args.core}_run{n}.csv"),
             )
+            rmdir(cpu_dir)
+            rmdir(newest_dir)
 
     for perf_file in glob("perf.stat.cpu.*.*.txt-*"):
         remove(perf_file)
