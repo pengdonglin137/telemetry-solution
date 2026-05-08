@@ -144,6 +144,13 @@ def create_base_arg_parser() -> argparse.ArgumentParser:
     perf_factory.add_cli_arguments(parser)
 
     parser.add_argument(
+        "-h",
+        "--help",
+        action="store_true",
+        dest="help_requested",
+        help="Show this help message and exit",
+    )
+    parser.add_argument(
         "--version",
         action="store_true",
         help="Print topdown-tool version information (use with --verbose for detailed build info) and exit.",
@@ -173,13 +180,6 @@ def extend_arg_parser(
     Returns:
         argparse.ArgumentParser: App argument parser.
     """
-    parser.add_argument(
-        "-h",
-        "--help",
-        action="help",
-        default=argparse.SUPPRESS,
-        help="Show this help message and exit",
-    )
 
     # Add --probe purely for help (so appears in usage synopsis)
     parser.add_argument(
@@ -444,7 +444,7 @@ def main(
     perf_factory.configure_from_cli_arguments(args)
 
     # Get available probe types on the system
-    available_factories = tuple(pt for pt in PROBE_FACTORY if pt.is_available())
+    available_factories = tuple(pt for pt in PROBE_FACTORY if args.help_requested or pt.is_available())
 
     # Early handling of --probe-list (allow listing without perf privileges)
     list_parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
@@ -455,7 +455,7 @@ def main(
         return
 
     # Check for required perf privileges before doing anything else
-    if not perf_factory.have_perf_privilege():
+    if not (args.help_requested or perf_factory.have_perf_privilege()):
         print(
             "Error: Insufficient privilege. This tool requires either perf_event_paranoid=-1, CAP_PERFMON, or CAP_SYS_ADMIN.",
             file=sys.stderr,
@@ -471,6 +471,10 @@ def main(
 
     # Extend parser with only selected probe factories
     extend_arg_parser(parser, selected_factories, default_probe_names)
+    # If requested, print help at this point and exit
+    if args.help_requested:
+        parser.print_help()
+        return
     args = parser.parse_args(_args)
     # Normalize command separator: drop leading '--' if provided
     if args.command and len(args.command) > 0 and args.command[0] == "--":
