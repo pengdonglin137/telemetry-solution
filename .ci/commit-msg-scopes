@@ -1,6 +1,8 @@
 SpeParser-common
-TdT-doc
+TdT-cmn
+TdT-common
 TdT-cpu
+TdT-doc
 TdT-test
 CI
 Doc-readme

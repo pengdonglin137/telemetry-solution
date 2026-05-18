@@ -17,6 +17,51 @@ By default, the CPU probe is selected. Add `--probe CMN` (or `--probe CPU,CMN`) 
 
 ## Requirements
 
+### CMN driver
+1. Check if Arm CMN devices are exposed in sysfs
+```sh
+ls -1d /sys/bus/event_source/devices/arm_cmn_*
+```
+ * If directories are listed, the CMN driver is loaded and active.
+ * If nothing is listed, the CMN driver is not loaded.
+2. Check if the CMN driver is built into the kernel  
+*(It should **not** be built in at this stage)*
+```sh
+zgrep CONFIG_ARM_CMN /proc/config.gz
+grep CONFIG_ARM_CMN /boot/config-$(uname -r)
+```
+ * `CONFIG_ARM_CMN=y` → built into the kernel
+ * `CONFIG_ARM_CMN=m` → built as a module (doesn't mean that module is available, just that it can loaded once installed on the system)
+ * *no output* → not enabled in this kernel
+3. Check if the CMN driver is currently loaded as a module  
+*(It should **not** be loaded at this stage)*
+```sh
+lsmod | grep arm_cmn
+cat /sys/module/arm_cmn/version 2>/dev/null
+grep arm_cmn /proc/modules
+```
+ * Any output indicates the module is loaded
+4. Check if the CMN driver module is available but not loaded
+```sh
+modinfo arm-cmn
+find /lib/modules/$(uname -r) -iname 'arm-cmn.ko*'
+```
+ * If the module is found, it is available but not loaded
+5. If the CMN module is not available, install it  
+*(Example for AWS Graviton / Ubuntu systems)*
+```sh
+sudo apt update && sudo apt install linux-modules-extra-$(uname -r)
+```
+6. If the CMN module is available but not loaded, load it
+```sh
+sudo modprobe arm-cmn
+```
+7. Verify that CMN sysfs entries are now present
+```sh
+ls -1d /sys/bus/event_source/devices/arm_cmn_*
+```
+ * Presence of arm\_cmn\_* directories confirms the driver is successfully loaded
+
 ### CMN mesh layout and permissions
 
 CMN topology discovery happens through `cmn_discover.py` from [cmn-tools](https://github.com/ArmDeveloperEcosystem/cmn-tools) (or `wperf cmninfo` on Windows). On Linux, generating the mesh layout typically requires root. The probe discovers the topology on the fly unless you provide a saved layout file.
