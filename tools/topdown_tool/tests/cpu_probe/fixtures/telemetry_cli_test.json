@@ -2,7 +2,7 @@
     "$schema": "v1.0.schema.json",
     "document": {
         "timestamp": "06 Aug 09:01:15 2025",
-        "copyright": "Copyright 2022-2025 Arm Ltd.",
+        "copyright": "Copyright 2022-2026 Arm Limited.",
         "confidential": false,
         "quality": "Release",
         "license": "Apache-2.0",

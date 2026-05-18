@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright 2023-2025 Arm Limited
+# Copyright 2023-2026 Arm Limited
 #
 # This module is mainly used to parse Arm's architected
 # SPE (Statistical Profiling Extension) format, is independent of Linux.

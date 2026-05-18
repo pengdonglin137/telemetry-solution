@@ -104,7 +104,7 @@
             "example": {
                 "document": {
                     "confidential": false,
-                    "copyright": "Copyright 2022-2023 Arm Ltd.",
+                    "copyright": "Copyright 2022-2026 Arm Limited.",
                     "description": "Telemetry Specification for Neoverse Min processor",
                     "license": "Apache-2.0",
                     "quality": "Development",

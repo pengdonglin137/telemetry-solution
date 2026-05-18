@@ -1,4 +1,4 @@
-# Copyright 2025 Arm Limited
+# Copyright 2025-2026 Arm Limited
 # SPDX-License-Identifier: Apache-2.0
 
 # pylint: disable=too-many-lines

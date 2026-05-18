@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright 2025 Arm Limited
+# Copyright 2025-2026 Arm Limited
 
 repos:
   - repo: local
@@ -10,4 +10,3 @@ repos:
         language: python
         pass_filenames: true
         stages: [commit-msg]
-

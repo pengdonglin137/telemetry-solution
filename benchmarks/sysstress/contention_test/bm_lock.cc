@@ -1,4 +1,4 @@
-//Copyright (c) 2016-2024, ARM Limited. All rights reserved.
+//Copyright 2016-2026 Arm Limited
 //
 //SPDX-License-Identifier:        BSD-3-Clause
 //

@@ -1,6 +1,6 @@
 
 # SPDX-License-Identifier: Apache-2.0
-# Copyright 2024 Arm Limited
+# Copyright 2024-2026 Arm Limited
 
 ARG DOCKER_BASE=ubuntu:noble
 FROM ${DOCKER_BASE}

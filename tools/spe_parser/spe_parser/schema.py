@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright 2023-2025 Arm Limited
+# Copyright 2023-2026 Arm Limited
 
 import pydoc
 from typing import Any
