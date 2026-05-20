@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright 2025 Arm Limited
+# Copyright 2025-2026 Arm Limited
 
 """CPU detector implementations and factory selection helpers."""
 
@@ -12,7 +12,7 @@ from typing import Optional
 from topdown_tool.common import range_decode, remote_target_manager, unwrap
 from topdown_tool.common.devlib_types import Target
 from topdown_tool.common.remote_utils import remote_path_exists, remote_read_text
-from topdown_tool.perf import PerfFactory, perf_factory
+from topdown_tool.perf import PerfFactory
 
 LINUX_MIDR_PATH = "/sys/devices/system/cpu/cpu{}/regs/identification/midr_el1"
 
@@ -24,7 +24,7 @@ class CpuDetector(ABC):
     and extract MIDR (Main ID Register) values.
     """
 
-    def __init__(self, perf_factory_instance: "PerfFactory" = perf_factory) -> None:
+    def __init__(self, perf_factory_instance: "PerfFactory") -> None:
         """Initialise the detector.
 
         Args:
@@ -284,7 +284,7 @@ class CpuDetectorFactory:
     """Factory that selects the appropriate :class:`CpuDetector` for the environment."""
 
     @staticmethod
-    def create(perf_factory_instance: "PerfFactory" = perf_factory) -> CpuDetector:
+    def create(perf_factory_instance: "PerfFactory") -> CpuDetector:
         """Create a detector matching the current host or configured target.
 
         Args:

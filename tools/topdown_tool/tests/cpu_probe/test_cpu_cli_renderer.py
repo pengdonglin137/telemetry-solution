@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright 2025 Arm Limited
+# Copyright 2025-2026 Arm Limited
 
 import pytest
 from io import StringIO
@@ -7,7 +7,8 @@ from rich.console import Console
 import itertools
 
 from topdown_tool.cpu_probe.cpu_cli_renderer import CpuCliRenderer
-from tests.cpu_probe.helpers import get_fixture_path, compare_reference
+from tests.cpu_probe.helpers import get_fixture_path
+from tests.common import compare_reference
 
 from topdown_tool.cpu_probe.common import CpuAggregate
 from topdown_tool.perf import Cpu, Uncore

@@ -4,13 +4,22 @@
 import pytest
 import types
 import itertools
+import logging
+from pathlib import Path
 from typing import Any, Dict, Generic, TypeVar
-from topdown_tool.cpu_probe.cpu_probe import CpuProbe
+import topdown_tool.cpu_probe.cpu_probe as cpu_probe_module
+from topdown_tool.cpu_probe.cpu_probe import CpuProbe, event_source_devices_with_cpus_file
 from topdown_tool.cpu_probe.common import CpuAggregate, CpuProbeConfiguration
+from topdown_tool.perf.mux_interval import (
+    EVENT_SOURCE_DEVICES_ROOT,
+    MuxIntervalRequest,
+    mux_interval_path,
+)
 from topdown_tool.perf.event_scheduler import CollectBy, EventScheduler
 from topdown_tool.perf import Cpu, PerfFactory, Uncore
 from topdown_tool.cpu_probe.cpu_telemetry_database import Event, TelemetryDatabase
 from topdown_tool.cpu_probe.common import COMBINED_STAGES
+from topdown_tool.common.metric_core import compute_metric_value
 
 
 def make_event(name, code=None):
@@ -595,7 +604,12 @@ def test_compute_metric_with_shared_metric1(
     scheduler = mocker.Mock()
     scheduler.retrieve_event_results.return_value = fake_values
 
-    result = CpuProbe._compute_metric(scheduler, perf_result, group, metric)
+    result = compute_metric_value(
+        scheduler=scheduler,
+        perf_result=perf_result,
+        group_metric_events=group.metric_event_tuples(),
+        metric=metric,
+    )
 
     if (
         None in fake_values
@@ -713,6 +727,154 @@ def test_cpuprobe_constructor_initializes_state_correctly(test_telemetry_spec):
     assert probe._perf_instance is not None
     # Event records dict empty
     assert probe._event_records == {}
+
+
+def test_event_source_devices_with_cpus_file_discovers_local_devices(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    devices_root = tmp_path / "devices"
+    devices_root.mkdir()
+    for name in ("arm_uncore_1", "arm_cpu", "arm_uncore_0"):
+        (devices_root / name).mkdir()
+    (devices_root / "arm_uncore_1" / "cpus").write_text("0\n", encoding="utf-8")
+    (devices_root / "arm_uncore_0" / "cpus").write_text("1\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "topdown_tool.cpu_probe.cpu_probe.EVENT_SOURCE_DEVICES_ROOT", str(devices_root)
+    )
+
+    assert event_source_devices_with_cpus_file() == (
+        "arm_uncore_0",
+        "arm_uncore_1",
+    )
+
+
+def test_event_source_devices_with_cpus_file_returns_empty_for_missing_local_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "topdown_tool.cpu_probe.cpu_probe.EVENT_SOURCE_DEVICES_ROOT",
+        str(tmp_path / "missing"),
+    )
+
+    assert event_source_devices_with_cpus_file() == ()
+
+
+class _DiscoveryTarget:
+    def __init__(
+        self,
+        *,
+        entries=("arm_uncore_1", "arm_cpu", "arm_uncore_0"),
+        existing=frozenset(),
+        list_error=None,
+        file_exists_errors=frozenset(),
+    ) -> None:
+        self.entries = entries
+        self.existing = existing
+        self.list_error = list_error
+        self.file_exists_errors = file_exists_errors
+        self.exec_calls = []
+
+    def list_directory(self, path: str):
+        assert path == EVENT_SOURCE_DEVICES_ROOT
+        if self.list_error is not None:
+            raise self.list_error
+        return self.entries
+
+    def file_exists(self, path: str) -> bool:
+        if path in self.file_exists_errors:
+            raise RuntimeError("file_exists failed")
+        return path in self.existing
+
+    def execute(self, cmd: str, **kwargs) -> str:
+        self.exec_calls.append((cmd, kwargs))
+        if any(f"test -e {path}" in cmd for path in self.existing):
+            return ""
+        raise RuntimeError("missing")
+
+
+def test_event_source_devices_with_cpus_file_discovers_remote_devices_with_fallback() -> None:
+    uncore0_path = f"{EVENT_SOURCE_DEVICES_ROOT}/arm_uncore_0/cpus"
+    uncore1_path = f"{EVENT_SOURCE_DEVICES_ROOT}/arm_uncore_1/cpus"
+    target = _DiscoveryTarget(
+        existing=frozenset((uncore0_path, uncore1_path)),
+        file_exists_errors=frozenset((uncore1_path,)),
+    )
+
+    assert event_source_devices_with_cpus_file(target=target) == (
+        "arm_uncore_0",
+        "arm_uncore_1",
+    )
+    assert target.exec_calls
+
+
+def test_event_source_devices_with_cpus_file_uses_common_remote_path_exists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = _DiscoveryTarget(entries=("arm_uncore_1", "arm_uncore_0"))
+    calls = []
+
+    def fake_remote_path_exists(remote_target, path):
+        calls.append((remote_target, path))
+        return path == f"{EVENT_SOURCE_DEVICES_ROOT}/arm_uncore_1/cpus"
+
+    monkeypatch.setattr(
+        cpu_probe_module,
+        "remote_path_exists",
+        fake_remote_path_exists,
+        raising=False,
+    )
+
+    assert event_source_devices_with_cpus_file(target=target) == ("arm_uncore_1",)
+    assert calls == [
+        (target, f"{EVENT_SOURCE_DEVICES_ROOT}/arm_uncore_1/cpus"),
+        (target, f"{EVENT_SOURCE_DEVICES_ROOT}/arm_uncore_0/cpus"),
+    ]
+
+
+def test_event_source_devices_with_cpus_file_warns_on_remote_list_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    target = _DiscoveryTarget(list_error=RuntimeError("list failed"))
+
+    with caplog.at_level(logging.WARNING):
+        assert event_source_devices_with_cpus_file(target=target) == ()
+
+    assert "Unable to list remote PMUs" in caplog.text
+    assert "list failed" in caplog.text
+
+
+def test_get_mux_interval_requests_uses_cpu_devices_and_remote_target(monkeypatch):
+    remote_target = object()
+    captured = {}
+
+    def fake_event_source_devices_with_cpus_file(target=None):
+        captured["target"] = target
+        return ("armv8_pmuv3_0", "arm_spe_0")
+
+    monkeypatch.setattr(
+        cpu_probe_module,
+        "event_source_devices_with_cpus_file",
+        fake_event_source_devices_with_cpus_file,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        cpu_probe_module,
+        "remote_target_manager",
+        types.SimpleNamespace(get_remote_target=lambda: remote_target),
+        raising=False,
+    )
+
+    probe = CpuProbe.__new__(CpuProbe)
+    probe._capture_data = True
+    probe._conf = CpuProbeConfiguration(mux_interval_ms=6)
+
+    assert probe.get_mux_interval_requests() == (
+        MuxIntervalRequest(mux_interval_path("armv8_pmuv3_0"), 6),
+        MuxIntervalRequest(mux_interval_path("arm_spe_0"), 6),
+    )
+    assert captured == {"target": remote_target}
 
 
 E = TypeVar("E")  # Type of event
@@ -1187,6 +1349,24 @@ def test_output_render_routes(dummy_probe, use_combined, use_node):
         dummy_probe._cli_renderer.render_metrics_tree.assert_not_called()
 
 
+def test_output_render_routes_combined_with_copied_stages_list(dummy_probe):
+    dummy_probe._conf.cpu_list_events = False
+    dummy_probe._conf.cpu_list_metrics = False
+    dummy_probe._conf.cpu_list_groups = False
+    dummy_probe._conf.cpu_dump_events = None
+    # Simulates CLI config path where combined sentinel is copied into a new list object.
+    dummy_probe._conf.stages = list(COMBINED_STAGES)
+    dummy_probe._conf.node = None
+
+    dummy_probe._cli_renderer.render_metrics_tree.reset_mock()
+    dummy_probe._cli_renderer.render_metric_groups_stages.reset_mock()
+
+    dummy_probe.output()
+
+    dummy_probe._cli_renderer.render_metrics_tree.assert_called_once()
+    dummy_probe._cli_renderer.render_metric_groups_stages.assert_not_called()
+
+
 def test_build_capture_groups_ignores_invalid_groups_and_logs(test_telemetry_db, caplog):
     """
     When a mix of valid/invalid groups is provided, only valid groups are returned and a single
@@ -1202,7 +1382,7 @@ def test_build_capture_groups_ignores_invalid_groups_and_logs(test_telemetry_db,
 
     # Ensure a single aggregated warning mentioning unknown groups is emitted
     assert any(
-        "ignoring unknown --cpu-metric-group values" in msg and "NON_EXISTENT_GROUP" in msg
+        "CPU 0: ignoring unknown metric group values" in msg and "NON_EXISTENT_GROUP" in msg
         for msg in caplog.messages
     )
 
@@ -1232,7 +1412,7 @@ def test_probe_skips_when_all_groups_invalid(test_telemetry_spec, caplog):
     assert probe._capture_data is False
     assert probe.need_capture() is False
     # Both the aggregated unknown warning and the "skipping capture" warning should appear
-    assert any("ignoring unknown --cpu-metric-group values" in msg for msg in caplog.messages)
+    assert any("CPU 0-1: ignoring unknown metric group values" in msg for msg in caplog.messages)
     assert any("no valid metric groups from --cpu-metric-group" in msg for msg in caplog.messages)
 
 

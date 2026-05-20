@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright 2025 Arm Limited
+# Copyright 2025-2026 Arm Limited
 
 """
 This module implements the CpuProbe class, which is responsible for capturing and analyzing CPU
@@ -10,9 +10,9 @@ The module integrates CPU-specific profiling logic into the larger telemetry/pro
 supporting use cases such as system-wide performance data capture and detailed metric computation via defined formulas.
 """
 
-import re
 from os.path import join
 import logging
+from pathlib import Path
 from sys import platform
 from typing import (
     Any,
@@ -27,7 +27,13 @@ from typing import (
 )
 
 from rich import get_console
-from topdown_tool.common import normalize_str, range_encode
+from topdown_tool.common import normalize_str, range_encode, remote_target_manager
+from topdown_tool.common.remote_utils import remote_path_exists
+from topdown_tool.common.close_match import (
+    format_did_you_mean,
+    format_unknown_metric_groups_warning,
+)
+from topdown_tool.common.metric_core import compute_metric_value
 from topdown_tool.cpu_probe.common import (
     COMBINED_STAGES,
     DEFAULT_ALL_STAGES,
@@ -38,6 +44,12 @@ from topdown_tool.cpu_probe.common import (
 from topdown_tool.cpu_probe.cpu_cli_renderer import CpuCliRenderer
 from topdown_tool.cpu_probe.cpu_csv_renderer import CpuCsvRenderer  # added import
 from topdown_tool.perf.event_scheduler import EventScheduler
+from topdown_tool.perf.mux_interval import (
+    EVENT_SOURCE_DEVICES_ROOT,
+    MuxIntervalRequest,
+    mux_interval_path,
+)
+from topdown_tool.common.devlib_types import Target
 from topdown_tool.cpu_probe.cpu_telemetry_database import (
     Event,
     Group,
@@ -51,11 +63,35 @@ from topdown_tool.perf import Cpu, PerfRecordLocation
 import topdown_tool.probe as Base
 from topdown_tool.perf.perf import Perf
 from topdown_tool.perf.windows_perf import WindowsPerf
-from topdown_tool.perf import perf_factory, PerfFactory
-from topdown_tool.common import simple_maths
+from topdown_tool.perf import PerfFactory
 from topdown_tool.cpu_probe.cpu_model import TelemetrySpecification
 
 logger = logging.getLogger(__name__)
+
+
+def event_source_devices_with_cpus_file(target: Optional[Target] = None) -> tuple[str, ...]:
+    if target is not None:
+        try:
+            entries = target.list_directory(EVENT_SOURCE_DEVICES_ROOT)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.warning(
+                "Unable to list remote PMUs under %s: %s", EVENT_SOURCE_DEVICES_ROOT, exc
+            )
+            return ()
+        return tuple(
+            sorted(
+                name
+                for name in entries
+                if remote_path_exists(target, f"{EVENT_SOURCE_DEVICES_ROOT}/{name}/cpus")
+            )
+        )
+
+    root = Path(EVENT_SOURCE_DEVICES_ROOT)
+    try:
+        return tuple(sorted(entry.name for entry in root.iterdir() if (entry / "cpus").exists()))
+    except FileNotFoundError:
+        return ()
+
 
 # Each tuple of Event(s) is uniquely mapped to a tuple of captured float values.
 EventResults = Dict[Tuple[Event, ...], Tuple[Optional[float], ...]]
@@ -92,7 +128,7 @@ class CpuProbe(Base.Probe):
         core_indices: List[int],
         capture_data: bool,
         base_csv_dir: Optional[str],
-        perf_factory_instance: "PerfFactory" = perf_factory,
+        perf_factory_instance: "PerfFactory",
     ):
         """Initializes a CpuProbe instance.
 
@@ -101,10 +137,11 @@ class CpuProbe(Base.Probe):
             spec: Telemetry specification containing events and metric definitions.
             core_indices: List of CPU cores to profile.
             capture_data: Flag indicating whether to capture performance data.
+            base_csv_dir: Directory used for CSV output when enabled.
             perf_factory_instance: Factory used to instantiate the appropriate Perf implementation.
 
         Usage Example:
-            probe = CpuProbe(conf, spec, [0, 1], True, perf_factory)
+            probe = CpuProbe(conf, spec, [0, 1], True, None, perf_factory_instance)
         """
         super().__init__()
 
@@ -173,6 +210,16 @@ class CpuProbe(Base.Probe):
         # Declare the computed metrics
         self.computed_metrics: ComputedMetrics = {}
 
+    def get_mux_interval_requests(self) -> Sequence[MuxIntervalRequest]:
+        if not self._capture_data or self._conf.mux_interval_ms is None:
+            return ()
+
+        target = remote_target_manager.get_remote_target()
+        return tuple(
+            MuxIntervalRequest(mux_interval_path(device), self._conf.mux_interval_ms)
+            for device in event_source_devices_with_cpus_file(target=target)
+        )
+
     # pylint: disable=too-many-locals,too-many-branches,too-many-statements
     @staticmethod
     def _build_capture_groups(
@@ -195,19 +242,12 @@ class CpuProbe(Base.Probe):
                 else:
                     missing.append((name, db.get_close_group_match(name)))
             if missing:
-                cpu_prefix = f'CPU "{db.product_name}"'
                 cores_label = range_encode(cores or [])
-                if cores_label:
-                    cpu_prefix = f"{cpu_prefix} cores [{cores_label}]"
+                cpu_id = cores_label or "unknown"
                 # Aggregate unknown names, include suggestions when available
-                parts = [
-                    f'"{name}" (did you mean "{sug}"?)' if sug else f'"{name}"'
-                    for name, sug in missing
-                ]
                 logger.warning(
-                    "%s: ignoring unknown --cpu-metric-group values: %s",
-                    cpu_prefix,
-                    ", ".join(parts),
+                    "%s",
+                    format_unknown_metric_groups_warning("CPU", cpu_id, missing),
                 )
             capture_groups = found
         elif conf.node:
@@ -219,11 +259,12 @@ class CpuProbe(Base.Probe):
                     cpu_prefix = f"{cpu_prefix} cores [{cores_label}]"
                 suggestion = db.get_close_metric_match(conf.node)
                 if suggestion:
+                    did_you_mean = format_did_you_mean(suggestion)
                     logger.warning(
-                        '%s: node "%s" not found. Did you mean "%s"? Skipping capture for this CPU.',
+                        '%s: node "%s" not found, %s Skipping capture for this CPU.',
                         cpu_prefix,
                         conf.node,
-                        suggestion,
+                        did_you_mean,
                     )
                 else:
                     logger.warning(
@@ -475,51 +516,13 @@ class CpuProbe(Base.Probe):
                 for grp in metric_groups:
                     output[loc][time][grp] = {}
                     for metric in grp.metrics:
-                        output[loc][time][grp][metric] = CpuProbe._compute_metric(
-                            scheduler, perf_result, grp, metric
+                        output[loc][time][grp][metric] = compute_metric_value(
+                            scheduler=scheduler,
+                            perf_result=perf_result,
+                            group_metric_events=grp.metric_event_tuples(),
+                            metric=metric,
                         )
         return output
-
-    @staticmethod
-    def _compute_metric(
-        scheduler: EventScheduler,
-        perf_result: EventResults,
-        grp: GroupLike,
-        metric: Metric,
-    ) -> Optional[float]:
-        pattern = re.compile(r"[a-zA-Z_]\w*")
-        result_val: Optional[float] = None
-
-        # Try to retrieve the values for this metric; if the group never appeared
-        # (e.g., partial/interrupt), treat the metric as not computed.
-        # This might happen with windows perf if it returns partial result
-        try:
-            values = scheduler.retrieve_event_results(
-                perf_result, grp.metric_event_tuples(), metric.events
-            )
-        except KeyError:
-            values = None
-
-        if values is None:
-            # Group missing entirely → leave result_val as None
-            pass
-        elif any(v is None for v in values):
-            # Some required event didn’t produce a value → None
-            result_val = None
-        else:
-            mapping = {ev.name: str(v) for ev, v in zip(metric.events, values)}
-
-            def repl(match: re.Match) -> str:
-                token = match.group(0)
-                return mapping.get(token, token)
-
-            substituted_formula = pattern.sub(repl, metric.formula)
-            try:
-                result_val = simple_maths.evaluate(substituted_formula)
-            except Exception:  # pylint: disable=broad-exception-caught
-                result_val = None
-
-        return result_val
 
     def output(self) -> None:
         """Outputs the captured performance data or lists available events/metrics/groups.
@@ -571,7 +574,7 @@ class CpuProbe(Base.Probe):
         )
         if self._conf.cpu_generate_csv and has_timeline:
             return
-        if self._conf.stages is COMBINED_STAGES or self._conf.node is not None:
+        if self._conf.stages == COMBINED_STAGES or self._conf.node is not None:
             self._cli_renderer.render_metrics_tree(
                 self.computed_metrics,
                 self._conf.descriptions,

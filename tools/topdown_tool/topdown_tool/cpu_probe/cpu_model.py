@@ -7,16 +7,15 @@
 validates the configuration against a comprehensive Pydantic model, and returns a TelemetrySpecification instance.
 It ensures that all telemetry configuration data conforms to expected type and relationship constraints.
 """
-from pathlib import Path
 import json
-import os
 import sys
+from pathlib import Path
 import argparse
 from typing import Annotated, Any, Dict, Iterable, List, Literal, Optional, Tuple, Union, cast
 import logging
-import jsonschema
 from pydantic import BaseModel, Field, StringConstraints, ValidationInfo, model_validator
 from rich.console import Console
+from topdown_tool.common.spec_loader import load_spec_json
 
 # Reusable type for hexadecimal strings like "0x1A2B"
 HexStr = Annotated[str, StringConstraints(pattern=r"^0x[0-9A-Fa-f]+$")]
@@ -247,45 +246,13 @@ class TelemetrySpecification(BaseModel):
         Raises:
             ValueError: If the JSON cannot be parsed into a TelemetrySpecification.
         """
-        try:
-            with open(path, encoding=encoding) as f:
-                try:
-                    data = json.load(f)
-                except json.JSONDecodeError as e:
-                    raise ValueError(
-                        f"JSON file {path} content is not valid. Please check the error at line {e.lineno}, column {e.colno}: {e.msg}"
-                    ) from e
-                if "$schema" in data:
-                    schema_path = os.path.join(schema_dir, data["$schema"])
-                    with open(schema_path, encoding="utf-8") as schema_file:
-                        try:
-                            schema = json.load(schema_file)
-                        except json.JSONDecodeError as e:
-                            raise ValueError(
-                                f"Schema file {schema_path} content is not valid. Please check the error at line {e.lineno}, column {e.colno}: {e.msg}"
-                            ) from e
-
-                    try:
-                        jsonschema.validate(instance=data, schema=schema)
-                    except jsonschema.exceptions.ValidationError as e:
-                        raise ValueError(
-                            f"Schema validation failed for {path} with the following error: {e.message}\nPlease check the JSON file and the schema."
-                        ) from e
-
-                try:
-                    result = TelemetrySpecification.model_validate(
-                        data, context={"duplicate_policy": duplicate_policy}
-                    )
-                except Exception as e:
-                    raise ValueError(
-                        f"Schema validation failed for {path} with the following error: {e}\nPlease check the JSON file and the schema."
-                    ) from e
-
-                return result
-        except FileNotFoundError as e:
-            raise FileNotFoundError(
-                f"File not found: {e.filename}. Please check that the file exists."
-            ) from e
+        return load_spec_json(
+            path=path,
+            schema_dir=schema_dir,
+            model_cls=TelemetrySpecification,
+            duplicate_policy=duplicate_policy,
+            encoding=encoding,
+        )
 
     @model_validator(mode="after")
     def _validate_metrics_events(self) -> "TelemetrySpecification":

@@ -1,9 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright 2025 Arm Limited
+# Copyright 2025-2026 Arm Limited
 
-import os
-import csv
-from typing import Dict, Union, List, Optional, Tuple, cast
+from typing import Dict, Iterable, Union, List, Optional, Tuple, cast
 
 # Type aliases (as in the original code)
 from topdown_tool.cpu_probe.common import CpuAggregate
@@ -18,6 +16,7 @@ from topdown_tool.cpu_probe.cpu_telemetry_database import (
 )
 from topdown_tool.perf import Cpu, PerfRecordLocation, Uncore
 from topdown_tool.common import range_encode
+from topdown_tool.common.csv_renderer_base import write_rows
 
 
 # Helper: DFS to find target node level in the TopdownMethodology tree.
@@ -72,8 +71,6 @@ class CpuCsvRenderer:
         db: TelemetryDatabase,
         output_dir: str,
     ) -> None:
-        # Ensure output directory exists.
-        os.makedirs(output_dir, 0o755, True)
         product_name = db.product_name.lower().replace(" ", "_").replace("-", "_")
 
         for loc, time_dict in computed_metrics.items():
@@ -89,12 +86,7 @@ class CpuCsvRenderer:
             else:
                 continue
 
-            filepath = os.path.join(output_dir, filename)
-            with open(filepath, "w", newline="", encoding="utf-8") as csv_file:
-                writer = csv.writer(csv_file)
-                # Write header
-                writer.writerow(["time", "group", "stage", "level", "metric", "value", "units"])
-
+            def iter_rows() -> Iterable[List[object]]:
                 # For each timestamp in the computed metrics.
                 for t, groups_data in time_dict.items():
                     # Iterate over each capture group provided.
@@ -126,17 +118,23 @@ class CpuCsvRenderer:
                                     if level_val is not None:
                                         # Convert to 1-indexed.
                                         level = str(level_val + 1)
-                                writer.writerow(
-                                    [
-                                        str(t) if t is not None else "",
-                                        cap_group.name,
-                                        stage,
-                                        level,
-                                        metric.name,
-                                        str(value) if value is not None else "",
-                                        metric.units,
-                                    ]
-                                )
+                                yield [
+                                    str(t) if t is not None else "",
+                                    cap_group.name,
+                                    stage,
+                                    level,
+                                    metric.name,
+                                    str(value) if value is not None else "",
+                                    metric.units,
+                                ]
+
+            # pylint: disable=duplicate-code
+            write_rows(
+                output_dir,
+                filename,
+                ["time", "group", "stage", "level", "metric", "value", "units"],
+                iter_rows(),
+            )
 
     def dump_events(
         self,
@@ -148,7 +146,6 @@ class CpuCsvRenderer:
         product_name: str,
         output_dir: str,
     ) -> None:
-        os.makedirs(output_dir, 0o755, True)
         for loc, events_values_for_core in event_records.items():
             if isinstance(loc, Cpu):
                 core_id = f"core_{loc.id}"
@@ -161,18 +158,20 @@ class CpuCsvRenderer:
             else:
                 continue
 
-            filepath = os.path.join(output_dir, filename)
-            with open(filepath, "w", encoding="utf-8") as csv_file:
-                csv_writer = csv.writer(csv_file)
-                csv_writer.writerow(["run", "time", "event", "value"])
+            def iter_rows() -> Iterable[List[object]]:
                 for time, event_results in events_values_for_core.items():
                     for events, results in event_results.items():
                         for i, event in enumerate(events):
-                            csv_writer.writerow(
-                                [
-                                    1,
-                                    time if time is not None else "",
-                                    event.name,
-                                    results[i],
-                                ]
-                            )
+                            yield [
+                                1,
+                                time if time is not None else "",
+                                event.name,
+                                results[i],
+                            ]
+
+            write_rows(
+                output_dir,
+                filename,
+                ["run", "time", "event", "value"],
+                iter_rows(),
+            )

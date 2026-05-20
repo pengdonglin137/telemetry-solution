@@ -24,11 +24,15 @@ The module is useful for integrating CPU performance specification into analysis
 """
 
 from dataclasses import dataclass
-from difflib import get_close_matches
 from functools import cached_property, total_ordering
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 from topdown_tool.common import normalize_str
+from topdown_tool.common.close_match import (
+    format_invalid_group_error,
+    get_close_name_match,
+)
+from topdown_tool.common.metric_core import MetricProtocol
 from topdown_tool.cpu_probe.cpu_model import (
     TelemetrySpecification,
     TopdownMethodology as TopdownMethodologyModel,
@@ -92,7 +96,7 @@ class Event(PerfEvent):
 
 
 @dataclass(frozen=True, order=True)
-class Metric:
+class Metric(MetricProtocol[Event]):
     """Represents a computed metric based on one or more events.
 
     Attributes (data class properties):
@@ -521,8 +525,8 @@ class TelemetryDatabase:
         Returns:
             The name of a close matching group, or None if no match is found.
         """
-        matches = get_close_matches(normalize_str(group_name), self._group_normalized_keys, 1)
-        return self.groups[self._group_normalized_keys[matches[0]]].name if matches else None
+        matched_name = get_close_name_match(group_name, self._group_normalized_keys)
+        return self.groups[matched_name].name if matched_name else None
 
     def get_close_metric_match(self, metric_name: str) -> Optional[str]:
         """Return the closest matching metric name.
@@ -535,8 +539,8 @@ class TelemetryDatabase:
         Returns:
             The name of a close matching metric, or None if no match is found.
         """
-        matches = get_close_matches(normalize_str(metric_name), self._metrics_normalized_keys, 1)
-        return self.metrics[self._metrics_normalized_keys[matches[0]]].name if matches else None
+        matched_name = get_close_name_match(metric_name, self._metrics_normalized_keys)
+        return self.metrics[matched_name].name if matched_name else None
 
     def get_groups(self, group_names: Sequence[str]) -> Tuple[Group, ...]:
         """Return a tuple of groups matching the specified names.
@@ -557,8 +561,7 @@ class TelemetryDatabase:
                 result.append(group)
             else:
                 suggestion = self.get_close_group_match(group_name)
-                suggestion = f' Did you mean "{suggestion}"?' if suggestion else ""
-                raise RuntimeError(f'"{group_name}" is not a valid group.{suggestion}')
+                raise RuntimeError(format_invalid_group_error(group_name, suggestion))
         return tuple(result)
 
     def get_all_events_groups(self, max_events: int) -> Tuple[Group, ...]:

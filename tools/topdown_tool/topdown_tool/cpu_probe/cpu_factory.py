@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright 2025 Arm Limited
+# Copyright 2025-2026 Arm Limited
 
 """
 This module provides the factory for creating CPU probe instances used in telemetry data capture.
@@ -19,8 +19,10 @@ Usage Example:
     probe_factory = CpuProbeFactory()
     probe_factory.add_cli_arguments(cpu_group)
     args = parser.parse_args()
-    if probe_factory.is_available():
-         capture = probe_factory.configure_from_cli_arguments(args)
+    perf_factory = PerfFactory()
+    shared_context = Base.SharedContext(perf_factory=perf_factory)
+    if probe_factory.is_available(shared_context):
+         capture = probe_factory.configure_from_cli_arguments(args, shared_context)
          if capture:
               probes = probe_factory.create(capture_data=True)
               # Probes are ready for telemetry capture.
@@ -39,6 +41,11 @@ from sys import platform
 from rich import get_console
 from rich.table import Table
 from topdown_tool.common import ArgsError, range_decode, unwrap
+from topdown_tool.common.telemetry_paths import (
+    telemetry_probe_mapping_file,
+    telemetry_probe_metrics_dir,
+    telemetry_probe_schemas_dir,
+)
 from topdown_tool.cpu_probe.common import (
     COMBINED_STAGES,
     DEFAULT_ALL_STAGES,
@@ -53,8 +60,14 @@ from topdown_tool.cpu_probe.cpu_model import TelemetrySpecification
 from topdown_tool.cpu_probe.cpu_probe import CpuProbe
 from topdown_tool.cpu_probe.windows_perf_parser import WindowsPerfParser
 from topdown_tool.perf.event_scheduler import CollectBy
-from topdown_tool.perf import perf_factory, PerfFactory
+from topdown_tool.perf.mux_interval import parse_mux_interval, resolve_probe_mux_interval
 import topdown_tool.probe as Base
+from topdown_tool.probe.cli_options import (
+    add_csv_output_option,
+    add_listing_options,
+    normalize_csv_output_targets,
+    resolve_csv_output_targets,
+)
 
 
 class _ProcessStageArgs(argparse.Action):
@@ -100,10 +113,10 @@ class CpuProbeFactoryConfig:
     interval_ms: Optional[int] = None
 
 
-class CpuProbeFactoryConfigBuilder(
+class CpuProbeFactoryCliConfigBuilder(
     Base.ProbeFactoryCliConfigBuilder[CpuProbeFactoryConfig]
 ):
-    """Builder translating CLI arguments into CpuProbeFactoryConfig instances."""
+    """Build CpuProbeFactoryConfig from CLI arguments."""
 
     def __init__(self, factory: "CpuProbeFactory") -> None:
         self._factory = factory
@@ -146,20 +159,9 @@ class CpuProbeFactoryConfigBuilder(
             action="store_true",
             help="List detected CPU models and the core indices where they are present.",
         )
-        inspect_group.add_argument(
-            "--cpu-list-groups",
-            action="store_true",
-            help="List metric groups defined in the CPU telemetry specification.",
-        )
-        inspect_group.add_argument(
-            "--cpu-list-metrics",
-            action="store_true",
-            help="List metrics defined in the CPU telemetry specification.",
-        )
-        inspect_group.add_argument(
-            "--cpu-list-events",
-            action="store_true",
-            help="List CPU PMU events referenced by the CPU telemetry specification.",
+        add_listing_options(
+            inspect_group,
+            probe_name="CPU",
         )
         inspect_group.add_argument(
             "--cpu-descriptions",
@@ -226,14 +228,15 @@ class CpuProbeFactoryConfigBuilder(
             metavar="u[,k]",
             help='Apply "u" or "k" modifier to events to capture only in EL0 or EL1 respectively',
         )
+        capture_group.add_argument(
+            "--cpu-mux-interval",
+            type=parse_mux_interval,
+            metavar="MS",
+            help="CPU perf event mux interval in milliseconds.",
+        )
 
         # Output control
-        output_group.add_argument(
-            "--cpu-generate-csv",
-            type=lambda s: [x.strip().lower() for x in s.split(",") if x.strip()],
-            metavar="metrics[,events]",
-            help="Generate CSV output for one or both: 'metrics' and/or 'events' (comma-separated). Requires --csv-output-path.",
-        )
+        add_csv_output_option(output_group, probe_name="CPU")
         output_group.add_argument("--cpu-dump-events", help=argparse.SUPPRESS)
 
         # Append CPU-specific examples to the global parser epilog
@@ -253,17 +256,34 @@ class CpuProbeFactoryConfigBuilder(
         else:
             parser.epilog = cpu_examples
 
-    def process_cli_arguments(self, args: argparse.Namespace) -> CpuProbeFactoryConfig:
-        """Convert parsed CLI arguments into a CpuProbeFactoryConfig.
+    def build_config_from_cli_arguments(
+        self,
+        args: argparse.Namespace,
+        _shared_context: Base.SharedContext,
+    ) -> CpuProbeFactoryConfig:
+        """Build CpuProbeFactoryConfig from CLI arguments.
 
         Args:
             args (argparse.Namespace): Parsed CLI arguments to interpret.
+            _shared_context (Base.SharedContext): Invocation-scoped shared
+                context.
 
         Returns:
             CpuProbeFactoryConfig: Configuration populated from args.
         """
-
-        return self.config_from_namespace(args)
+        config = self.config_from_namespace(args)
+        runtime = replace(
+            config.runtime,
+            mux_interval_ms=resolve_probe_mux_interval(
+                "CPU",
+                config.runtime.mux_interval_ms,
+                _shared_context,
+            ),
+        )
+        return replace(
+            config,
+            runtime=runtime,
+        )
 
     @staticmethod
     def config_from_namespace(args: argparse.Namespace) -> CpuProbeFactoryConfig:
@@ -294,7 +314,11 @@ class CpuProbeFactoryConfigBuilder(
                 events_modifiers.append(events_modifier)
         runtime = CpuProbeConfiguration(
             cpu_dump_events=getattr(args, "cpu_dump_events", None),
-            cpu_generate_csv=list(getattr(args, "cpu_generate_csv", []) or []),
+            cpu_generate_csv=resolve_csv_output_targets(
+                probe_values=getattr(args, "cpu_generate_csv", None),
+                global_values=getattr(args, "generate_csv", None),
+                probe_option_name="--cpu-generate-csv",
+            ),
             cpu_list_groups=getattr(args, "cpu_list_groups", False),
             cpu_list_metrics=getattr(args, "cpu_list_metrics", False),
             cpu_list_events=getattr(args, "cpu_list_events", False),
@@ -307,6 +331,7 @@ class CpuProbeFactoryConfigBuilder(
             events_modifiers=tuple(events_modifiers) if events_modifiers is not None else None,
             descriptions=getattr(args, "cpu_descriptions", False),
             show_sample_events=getattr(args, "cpu_show_sample_events", False),
+            mux_interval_ms=getattr(args, "cpu_mux_interval", None),
         )
 
         return CpuProbeFactoryConfig(
@@ -351,13 +376,24 @@ class CpuProbeFactory(Base.ProbeFactory[CpuProbeFactoryConfig]):
         factory = CpuProbeFactory()
         factory.add_cli_arguments(cpu_group)
 
-        should_capture = factory.configure_from_cli_arguments(args)
+        should_capture = factory.configure_from_cli_arguments(
+            args, Base.SharedContext(perf_factory=PerfFactory())
+        )
         if should_capture:
             probes = factory.create(capture_data=True)
     """
 
-    METRICS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "metrics")
-    SCHEMAS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schemas")
+    METRICS_DIR = str(telemetry_probe_metrics_dir("cpu"))
+    SCHEMAS_DIR = str(telemetry_probe_schemas_dir("cpu"))
+    MAPPING_FILE = str(telemetry_probe_mapping_file("cpu"))
+
+    @classmethod
+    def _resolve_mapping_file(cls) -> str:
+        """Return mapping.json path, honoring test overrides of ``METRICS_DIR``."""
+        metrics_mapping = os.path.join(cls.METRICS_DIR, "mapping.json")
+        if os.path.isfile(metrics_mapping):
+            return metrics_mapping
+        return cls.MAPPING_FILE
 
     @dataclass
     class _CpuDescription:
@@ -387,7 +423,7 @@ class CpuProbeFactory(Base.ProbeFactory[CpuProbeFactoryConfig]):
         """
         return "CPU"
 
-    def is_available(self) -> bool:
+    def is_available(self, _shared_context: Base.SharedContext) -> bool:
         """Check if CPU probing is available on the current system.
 
         Returns:
@@ -395,10 +431,12 @@ class CpuProbeFactory(Base.ProbeFactory[CpuProbeFactoryConfig]):
         """
         return True
 
-    def _get_config_builder(self) -> Base.ProbeFactoryCliConfigBuilder[CpuProbeFactoryConfig]:
-        """Construct the CPU probe config builder tied to this factory."""
+    def _get_config_builder(
+        self,
+    ) -> Base.ProbeFactoryCliConfigBuilder[CpuProbeFactoryConfig]:
+        """Construct the CPU probe CLI config builder."""
 
-        return CpuProbeFactoryConfigBuilder(self)
+        return CpuProbeFactoryCliConfigBuilder(self)
 
     def get_description(self) -> str:
         """Return a short description of the CPU probe."""
@@ -422,14 +460,18 @@ class CpuProbeFactory(Base.ProbeFactory[CpuProbeFactoryConfig]):
         """
         return implementer << 24 | variant << 20 | architecture << 16 | part_num << 4 | revision
 
-    def configure(self, config: CpuProbeFactoryConfig, **kwargs: object) -> bool:
+    def _configure(
+        self,
+        config: CpuProbeFactoryConfig,
+        **kwargs: object,
+    ) -> bool:
         """Apply a configuration for the CPU probe factory.
 
         Args:
             config (CpuProbeFactoryConfig): CPU probe configuration values.
             **kwargs: Supported keyword-only arguments:
-                cpu_detector (Optional[CpuDetector]): Preconfigured detector to reuse instead
-                of creating a new one.
+                cpu_detector (Optional[CpuDetector]): Preconfigured detector to
+                reuse instead of creating a new one.
 
         Returns:
             bool: True if telemetry capture should proceed, False when only
@@ -438,7 +480,6 @@ class CpuProbeFactory(Base.ProbeFactory[CpuProbeFactoryConfig]):
 
         if not isinstance(config, CpuProbeFactoryConfig):
             raise TypeError("CpuProbeFactory.configure expected CpuProbeFactoryConfig")
-
         cpu_detector_kw = kwargs.pop("cpu_detector", None)
         if kwargs:
             unexpected_args = ", ".join(sorted(kwargs.keys()))
@@ -453,32 +494,28 @@ class CpuProbeFactory(Base.ProbeFactory[CpuProbeFactoryConfig]):
             raise TypeError("cpu_detector must be a CpuDetector instance or None")
 
         runtime_conf = replace(config.runtime)
-        normalized_csv: List[str] = []
-        seen = set()
-        for item in runtime_conf.cpu_generate_csv:
-            lower = item.lower()
-            if lower not in ("metrics", "events"):
-                raise ArgsError(
-                    f"Invalid value for --cpu-generate-csv: {item}. Use 'metrics' and/or 'events'."
-                )
-            if lower not in seen:
-                seen.add(lower)
-                normalized_csv.append(lower)
+        if runtime_conf.mux_interval_ms is None:
+            runtime_conf = replace(
+                runtime_conf,
+                mux_interval_ms=resolve_probe_mux_interval("CPU", None, self.shared_context),
+            )
+        normalized_csv = normalize_csv_output_targets(
+            runtime_conf.cpu_generate_csv,
+            option_name="--cpu-generate-csv",
+        )
 
         # Replace returns a shallow copy; clone mutable lists so factory/runtime
         # tweaks don't mutate the config stored on CpuProbeFactoryConfig.
         runtime_conf.metric_group = list(runtime_conf.metric_group)
         runtime_conf.stages = list(runtime_conf.stages)
 
-        require_csv_path = bool(runtime_conf.cpu_dump_events) or bool(normalized_csv)
-        if require_csv_path and not config.csv_output_path:
-            raise ArgsError("CSV output path must be specified with --csv-output-path")
         if config.interval_ms is not None and not normalized_csv:
             raise ArgsError("Must use interval option with CSV option")
 
         runtime_conf.cpu_generate_csv = normalized_csv
 
-        self._cpu_detector = cpu_detector or CpuDetectorFactory.create(perf_factory)
+        perf_factory_instance = self.shared_context.perf_factory
+        self._cpu_detector = cpu_detector or CpuDetectorFactory.create(perf_factory_instance)
 
         self._update_midr_cpu_core_map(config.core_filter, self._cpu_detector)
         self._update_cpu_descriptions(config, self._cpu_detector)
@@ -533,7 +570,7 @@ class CpuProbeFactory(Base.ProbeFactory[CpuProbeFactoryConfig]):
         # loaded.
         cpu_descriptions: Dict[int, CpuProbeFactory._CpuDescription] = {}
 
-        with open(os.path.join(self.METRICS_DIR, "mapping.json"), encoding="utf-8") as f:
+        with open(self._resolve_mapping_file(), encoding="utf-8") as f:
             cpus_mapping = json.load(f)
         for cpu_id, information in cpus_mapping.items():
             cpu_descriptions[int(cpu_id, 16)] = self._CpuDescription(
@@ -607,39 +644,34 @@ class CpuProbeFactory(Base.ProbeFactory[CpuProbeFactoryConfig]):
             )
         get_console().print(table)
 
-    # pylint: disable=too-many-arguments, too-many-positional-arguments
     def create(
         self,
         capture_data: bool = True,
-        base_csv_dir: Optional[str] = None,
-        perf_factory_instance: "PerfFactory" = perf_factory,
-        cpu_detector: Optional[CpuDetector] = None,
     ) -> Tuple["CpuProbe", ...]:
         """Create CpuProbe instances based on the configured state and detected CPUs.
 
         This method generates a CpuProbe per unique MIDR type found across selected cores.
         Each probe is initialized with its corresponding telemetry specification and receives
-        a shared PerfFactory instance, which constructs platform-specific Perf implementations
-        internally.
+        the configured PerfFactory instance, which constructs platform-specific Perf
+        implementations internally.
         Args:
             capture_data (bool, optional): Flag indicating whether telemetry capture should be performed.
                 Defaults to True.
-            perf_factory_instance (PerfFactory): The factory used to create Perf instances.
-            cpu_detector (Optional[CpuDetector]): Detector instance to use. When omitted, the
-                detector resolved during CLI processing (or a new environment-appropriate one) is used.
 
         Returns:
             Tuple[CpuProbe, ...]: A tuple of instantiated CpuProbe objects.
         """
         if self._factory_config is None:
             raise RuntimeError("CpuProbeFactory must be configured before calling create().")
+        if self._cpu_detector is None:
+            raise RuntimeError("CpuProbeFactory must resolve a CPU detector during configure().")
+        shared_context = self.shared_context
+        csv_requested = bool(self._conf.cpu_generate_csv) or bool(self._conf.cpu_dump_events)
+        base_csv_dir = shared_context.get_or_create_base_csv_dir() if csv_requested else None
+        perf_factory_instance = shared_context.perf_factory
 
         if platform == "win32":
             perf_factory_instance.register_parser_for_class(CpuProbe, WindowsPerfParser)
-
-        self._cpu_detector = (
-            cpu_detector or self._cpu_detector or CpuDetectorFactory.create(perf_factory_instance)
-        )
 
         cpu_probes = []
         # Instantiate a CpuProbe for each detected CPU configuration.

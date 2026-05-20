@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright 2025 Arm Limited
+# Copyright 2025-2026 Arm Limited
 
 import argparse
 import json
@@ -10,12 +10,16 @@ from types import SimpleNamespace
 import shutil
 from unittest.mock import Mock
 
-from topdown_tool.cpu_probe.cpu_factory import CpuProbeFactory, ArgsError
-from topdown_tool.cpu_probe.common import DEFAULT_ALL_STAGES
+from topdown_tool.cpu_probe.cpu_factory import (
+    ArgsError,
+    CpuProbeFactory,
+    CpuProbeFactoryCliConfigBuilder,
+    CpuProbeFactoryConfig,
+)
+from topdown_tool.cpu_probe.common import CpuProbeConfiguration, DEFAULT_ALL_STAGES
 from topdown_tool.perf.event_scheduler import CollectBy
 from topdown_tool.perf.linux_perf import LinuxPerf
 from topdown_tool.perf.windows_perf import WindowsPerf
-from topdown_tool.perf import perf_factory as global_perf_factory
 from topdown_tool.perf.remote_linux_perf import RemoteLinuxPerf
 from topdown_tool.perf.perf_factory import PerfFactory
 import topdown_tool.cpu_probe.cpu_detector as cpu_detector_module
@@ -25,6 +29,7 @@ from topdown_tool.cpu_probe.cpu_detector import (
     RemoteLinuxLikeCpuDetector,
 )
 from topdown_tool.common import remote_target_manager
+from topdown_tool.probe.probe import SharedContext
 from tests.cpu_probe.helpers import get_fixture_path
 
 # --- Fixtures ---
@@ -44,6 +49,9 @@ def fake_cpu_midr():
 
 
 class FakeCPUDetect(CpuDetector):
+    def __init__(self) -> None:
+        super().__init__(SimpleNamespace())
+
     def cpu_count(self) -> int:
         return 2
 
@@ -55,10 +63,15 @@ def process_with_detector(
     factory: CpuProbeFactory,
     args: argparse.Namespace,
     cpu_detector: Optional[CpuDetector] = None,
+    perf_factory: Optional[PerfFactory] = None,
 ) -> bool:
     """Helper to process CLI args and apply configuration in tests."""
 
-    return factory.configure_from_cli_arguments(args, cpu_detector=cpu_detector)
+    return factory.configure_from_cli_arguments(
+        args,
+        SharedContext(perf_factory=perf_factory or PerfFactory()),
+        cpu_detector=cpu_detector,
+    )
 
 
 def tmp_metrics_dir_common(tmp_path, schema_tag, create_spec_file=True, generate_invalid_tag=False):
@@ -163,8 +176,10 @@ def base_args():
     ns.cpu_descriptions = False
     ns.cpu_show_sample_events = False
     ns.csv_output_path = None
+    ns.generate_csv = None
     ns.cpu_generate_csv = None
     ns.interval = None
+    ns.cpu_mux_interval = None
     ns.cpu_dump_events = None
     return ns
 
@@ -236,7 +251,54 @@ def test_name_method():
 
 def test_is_available_method():
     factory = CpuProbeFactory()
-    assert factory.is_available() is True
+    assert factory.is_available(SharedContext(perf_factory=PerfFactory())) is True
+
+
+def test_parser_accepts_cpu_mux_interval() -> None:
+    parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+    CpuProbeFactory().add_cli_arguments(parser)
+
+    args = parser.parse_args(["--cpu-mux-interval", "7"])
+
+    assert args.cpu_mux_interval == 7
+
+
+def test_parser_rejects_non_positive_cpu_mux_interval(capsys) -> None:
+    parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+    CpuProbeFactory().add_cli_arguments(parser)
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--cpu-mux-interval", "0"])
+
+    assert "mux interval must be a positive integer" in capsys.readouterr().err
+
+
+def test_build_config_cpu_mux_interval_overrides_global(base_args) -> None:
+    base_args.cpu_mux_interval = 11
+    builder = CpuProbeFactoryCliConfigBuilder(CpuProbeFactory())
+    shared_context = SharedContext(perf_factory=PerfFactory(), mux_interval_ms=9)
+
+    config = builder.build_config_from_cli_arguments(base_args, shared_context)
+
+    assert config.runtime.mux_interval_ms == 11
+
+
+def test_build_config_uses_global_cpu_mux_interval_when_no_probe_override(base_args) -> None:
+    builder = CpuProbeFactoryCliConfigBuilder(CpuProbeFactory())
+    shared_context = SharedContext(perf_factory=PerfFactory(), mux_interval_ms=9)
+
+    config = builder.build_config_from_cli_arguments(base_args, shared_context)
+
+    assert config.runtime.mux_interval_ms == 9
+
+
+def test_build_config_uses_cpu_mux_interval_default(base_args) -> None:
+    builder = CpuProbeFactoryCliConfigBuilder(CpuProbeFactory())
+    shared_context = SharedContext(perf_factory=PerfFactory())
+
+    config = builder.build_config_from_cli_arguments(base_args, shared_context)
+
+    assert config.runtime.mux_interval_ms == 4
 
 
 @pytest.mark.parametrize("metrics_fixture_dir", ["tmp_metrics_dir", "tmp_metrics_dir_no_schema"])
@@ -320,15 +382,16 @@ def test_process_cli_arguments_invalid_spec_schema_validation_raises(
         process_with_detector(factory, base_args, FakeCPUDetect())
 
 
-def test_process_cli_arguments_missing_csv_raises(tmp_metrics_dir, base_args, monkeypatch):
-    # Remove csv_output_path and provide interval to trigger error.
+def test_process_cli_arguments_missing_csv_no_longer_raises(
+    tmp_metrics_dir, tmp_schemas_dir, base_args, monkeypatch
+):
+    # csv_output_path can be omitted even when CSV generation is requested.
     base_args.csv_output_path = None
-    base_args.interval = 1
+    base_args.cpu_generate_csv = ["metrics"]
     monkeypatch.setattr(CpuProbeFactory, "METRICS_DIR", tmp_metrics_dir)
     monkeypatch.setattr(CpuProbeFactory, "SCHEMAS_DIR", tmp_schemas_dir)
     factory = CpuProbeFactory()
-    with pytest.raises(ArgsError):
-        process_with_detector(factory, base_args, FakeCPUDetect())
+    assert process_with_detector(factory, base_args, FakeCPUDetect()) in (True, False)
 
 
 @pytest.mark.parametrize(
@@ -340,13 +403,11 @@ def test_process_cli_arguments_missing_csv_raises(tmp_metrics_dir, base_args, mo
         {"cpu_generate_csv": ["metrics", "events"]},
     ],
 )
-def test_process_cli_arguments_requires_csv_output_path_for_csv_flags(base_args, flag_overrides):
-    # No csv_output_path provided; any CSV-related flag must fail early
+def test_process_cli_arguments_csv_flags_without_path_allowed(base_args, flag_overrides):
     for k, v in flag_overrides.items():
         setattr(base_args, k, v)
     factory = CpuProbeFactory()
-    with pytest.raises(ArgsError):
-        process_with_detector(factory, base_args, FakeCPUDetect())
+    assert process_with_detector(factory, base_args, FakeCPUDetect()) in (True, False)
 
 
 def test_process_cli_arguments_interval_requires_metrics_csv(base_args):
@@ -386,6 +447,51 @@ def test_process_cli_arguments_valid_csv_combinations(
     assert process_with_detector(factory, base_args_c, FakeCPUDetect()) in (True, False)
 
 
+def test_configure_normalizes_runtime_cpu_generate_csv() -> None:
+    factory = CpuProbeFactory()
+    config = CpuProbeFactoryConfig(
+        runtime=CpuProbeConfiguration(cpu_generate_csv=["METRICS", "events", "METRICS"]),
+        csv_output_path="out",
+    )
+
+    assert factory.configure(
+        config,
+        SharedContext(perf_factory=PerfFactory()),
+        cpu_detector=FakeCPUDetect(),
+    ) in (True, False)
+    assert factory._conf.cpu_generate_csv == ["metrics", "events"]
+
+
+def test_process_cli_arguments_uses_global_generate_csv(
+    tmp_metrics_dir, tmp_schemas_dir, base_args, monkeypatch
+):
+    monkeypatch.setattr(CpuProbeFactory, "METRICS_DIR", tmp_metrics_dir)
+    monkeypatch.setattr(CpuProbeFactory, "SCHEMAS_DIR", tmp_schemas_dir)
+    base_args.generate_csv = ["metrics", "events"]
+    base_args.cpu_generate_csv = None
+    base_args.csv_output_path = "out"
+    base_args.core = [0]
+
+    factory = CpuProbeFactory()
+    assert process_with_detector(factory, base_args, FakeCPUDetect()) in (True, False)
+    assert factory._conf.cpu_generate_csv == ["metrics", "events"]
+
+
+def test_process_cli_arguments_probe_specific_overrides_global_generate_csv(
+    tmp_metrics_dir, tmp_schemas_dir, base_args, monkeypatch
+):
+    monkeypatch.setattr(CpuProbeFactory, "METRICS_DIR", tmp_metrics_dir)
+    monkeypatch.setattr(CpuProbeFactory, "SCHEMAS_DIR", tmp_schemas_dir)
+    base_args.generate_csv = ["metrics", "events"]
+    base_args.cpu_generate_csv = ["metrics"]
+    base_args.csv_output_path = "out"
+    base_args.core = [0]
+
+    factory = CpuProbeFactory()
+    assert process_with_detector(factory, base_args, FakeCPUDetect()) in (True, False)
+    assert factory._conf.cpu_generate_csv == ["metrics"]
+
+
 def test_create_method(monkeypatch, tmp_metrics_dir, tmp_schemas_dir, base_args):
     # Patch METRICS_DIR to use our temporary metrics folder.
     monkeypatch.setattr(CpuProbeFactory, "METRICS_DIR", tmp_metrics_dir)
@@ -396,6 +502,7 @@ def test_create_method(monkeypatch, tmp_metrics_dir, tmp_schemas_dir, base_args)
     base_args.interval = 1
     base_args.csv_output_path = "dummy"
     base_args.cpu_generate_csv = ["metrics"]
+    base_args.cpu_mux_interval = 11
 
     # NEW: Use the generator to create a dummy SME telemetry spec.
     sme_spec = generate_fake_spec(
@@ -433,7 +540,7 @@ def test_create_method(monkeypatch, tmp_metrics_dir, tmp_schemas_dir, base_args)
 
     monkeypatch.setattr("topdown_tool.cpu_probe.cpu_factory.CpuProbe", fake_CpuProbe)
 
-    probes = factory.create(capture_data=True, cpu_detector=FakeCPUDetect())
+    probes = factory.create(capture_data=True)
     # One probe should be created for the detected CPU (from core 0) and one for the SME spec.
     # Total probes == 2.
     assert len(probes) == 2
@@ -441,9 +548,11 @@ def test_create_method(monkeypatch, tmp_metrics_dir, tmp_schemas_dir, base_args)
     # First call: from normal CPU description.
     assert calls[0]["cores"] == [0]
     assert calls[0]["spec"].product_configuration.product_name == "neoverse-n3"
+    assert calls[0]["conf"].mux_interval_ms == 11
     # Second call: from SME argument.
     assert calls[1]["cores"] == [1]
     assert calls[1]["spec"].product_configuration.product_name == "sme-test"
+    assert calls[1]["conf"].mux_interval_ms == 11
 
 
 # NEW: Test that when any listing flag is set, _list_cpus is called and process_cli_arguments returns False.
@@ -484,6 +593,9 @@ def test_process_cli_arguments_no_list_flags(tmp_metrics_dir, base_args):
 
 # NEW: Complex Probe-Creation Test for Multi-CPU System.
 class FakeHeteroDetect(CpuDetector):
+    def __init__(self) -> None:
+        super().__init__(SimpleNamespace())
+
     def cpu_count(self) -> int:
         return 9  # cores 0 to 8
 
@@ -588,12 +700,12 @@ def test_complex_probe_creation(monkeypatch, tmp_path):
     calls = []
 
     def fake_CpuProbe(conf, spec, cores, capture_data, base_csv_dir, perf_class):
-        calls.append({"spec": spec, "cores": cores})
+        calls.append({"conf": conf, "spec": spec, "cores": cores})
         return object()
 
     monkeypatch.setattr("topdown_tool.cpu_probe.cpu_factory.CpuProbe", fake_CpuProbe)
 
-    probes = factory.create(capture_data=True, cpu_detector=FakeHeteroDetect())
+    probes = factory.create(capture_data=True)
     # Expect 4 probes: little_core (cores: 0,2,3,4), mid_core (core: 5), big_core (core: 8), and SME probe (cores: 0-5).
     assert len(probes) == 4
     little = next(
@@ -616,6 +728,7 @@ def test_complex_probe_creation(monkeypatch, tmp_path):
     assert mid is not None and mid["cores"] == [5]
     assert big is not None and big["cores"] == [8]
     assert sme is not None and sme["cores"] == list(range(0, 6))
+    assert {call["conf"].mux_interval_ms for call in calls} == {4}
 
 
 def test_perf_factory_integration(
@@ -634,22 +747,31 @@ def test_perf_factory_integration(
     monkeypatch.setattr(CpuProbeFactory, "METRICS_DIR", tmp_metrics_dir)
     monkeypatch.setattr(CpuProbeFactory, "SCHEMAS_DIR", tmp_schemas_dir)
 
-    global_perf_factory.configure_from_cli_arguments(base_args)
+    perf_factory = PerfFactory()
+    perf_factory.configure_from_cli_arguments(base_args)
 
     # Patch get_pmu_counters to avoid subprocess
     monkeypatch.setattr(LinuxPerf, "get_pmu_counters", staticmethod(lambda core, path: 6))
     monkeypatch.setattr(WindowsPerf, "get_pmu_counters", staticmethod(lambda core, path: 6))
 
-    result = process_with_detector(factory, base_args, FakeCPUDetect())
+    result = process_with_detector(factory, base_args, FakeCPUDetect(), perf_factory)
     assert result is True
 
     # Capture the Perf args passed into CpuProbe
     captured = {}
 
-    def fake_CpuProbe(conf, spec, cores, capture_data, base_csv_dir, perf_factory_instance):
+    def fake_CpuProbe(
+        conf,
+        spec,
+        cores,
+        capture_data,
+        base_csv_dir,
+        perf_factory_instance,
+    ):
         captured["perf_path"] = perf_factory_instance._perf_path
         captured["perf_args"] = perf_factory_instance._perf_args
         captured["interval"] = perf_factory_instance._interval
+        captured["mux_interval_ms"] = conf.mux_interval_ms
         return SimpleNamespace()  # dummy CpuProbe
 
     monkeypatch.setattr("topdown_tool.cpu_probe.cpu_factory.CpuProbe", fake_CpuProbe)
@@ -659,6 +781,7 @@ def test_perf_factory_integration(
     assert captured["perf_path"] == "/custom/perf"
     assert captured["perf_args"] == "--custom-flag"
     assert captured["interval"] == 500
+    assert captured["mux_interval_ms"] == 4
 
 
 def test_cpu_detector_factory_remote_linux(monkeypatch):
@@ -686,7 +809,7 @@ def test_cpu_detector_factory_remote_linux(monkeypatch):
     monkeypatch.setattr(cpu_detector_module, "remote_read_text", fake_remote_read)
     monkeypatch.setattr(cpu_detector_module, "remote_path_exists", lambda *_args, **_kwargs: False)
 
-    detector = CpuDetectorFactory.create()
+    detector = CpuDetectorFactory.create(PerfFactory())
 
     assert isinstance(detector, RemoteLinuxLikeCpuDetector)
     assert detector.cpu_count() == 2
@@ -700,7 +823,7 @@ def test_cpu_detector_factory_remote_unsupported(monkeypatch):
     monkeypatch.setattr(remote_target_manager, "is_target_linuxlike", lambda: False)
 
     with pytest.raises(RuntimeError):
-        CpuDetectorFactory.create()
+        CpuDetectorFactory.create(PerfFactory())
 
 
 def test_cpu_probe_factory_remote_path_smoke(
@@ -760,18 +883,27 @@ def test_cpu_probe_factory_remote_path_smoke(
     monkeypatch.setattr(CpuProbeFactory, "METRICS_DIR", tmp_metrics_dir)
     monkeypatch.setattr(CpuProbeFactory, "SCHEMAS_DIR", tmp_schemas_dir)
 
-    global_perf_factory.configure_from_cli_arguments(base_args)
+    perf_factory = PerfFactory()
+    perf_factory.configure_from_cli_arguments(base_args)
 
-    result = process_with_detector(factory, base_args)
+    result = process_with_detector(factory, base_args, perf_factory=perf_factory)
     assert result is True
 
     captured = {}
 
-    def _fake_probe(conf, spec, cores, capture_data, base_csv_dir, perf_factory_instance):
+    def _fake_probe(
+        conf,
+        spec,
+        cores,
+        capture_data,
+        base_csv_dir,
+        perf_factory_instance,
+    ):
         captured.setdefault("probes", []).append(
             (spec.product_configuration.product_name, list(cores))
         )
         captured["perf_factory"] = perf_factory_instance
+        captured["mux_interval_ms"] = conf.mux_interval_ms
         return SimpleNamespace(spec=spec, cores=cores, capture=capture_data)
 
     monkeypatch.setattr("topdown_tool.cpu_probe.cpu_factory.CpuProbe", _fake_probe)
@@ -784,3 +916,4 @@ def test_cpu_probe_factory_remote_path_smoke(
     perf_factory_instance: PerfFactory = captured["perf_factory"]
     remote_perf = perf_factory_instance.create()
     assert isinstance(remote_perf, RemoteLinuxPerf)
+    assert captured["mux_interval_ms"] == 4

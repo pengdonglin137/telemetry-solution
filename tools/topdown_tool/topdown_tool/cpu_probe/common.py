@@ -60,6 +60,7 @@ class CpuProbeConfiguration:
     descriptions: bool = False
     show_sample_events: bool = False
     pid_tracking_applicable: bool = False
+    mux_interval_ms: Optional[int] = None
 
 
 @dataclass(frozen=True, order=True)

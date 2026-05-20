@@ -6,6 +6,7 @@ from typing import Dict, List, Optional, Sequence, Union, TypeVar
 from rich.console import Console
 from rich.table import Table
 from rich.tree import Tree
+from topdown_tool.common.numeric_format import format_numeric_value
 from topdown_tool.common import range_encode
 from topdown_tool.cpu_probe.common import CpuAggregate
 from topdown_tool.cpu_probe.cpu_telemetry_database import (
@@ -34,23 +35,18 @@ ComputedUncoreGroups = Dict[Uncore, Dict[GroupLike, Dict[Metric, Union[float, No
 T = TypeVar("T", ComputedAggregateGroups, ComputedCpuGroups, ComputedUncoreGroups)
 
 
-def format_value(val: Optional[float], unit: str) -> str:
-    """Format a numerical value for display depending on the metric unit.
+def format_value(val: Optional[float]) -> str:
+    """Format a numerical value for display.
 
     Args:
         val: The numerical value to format, or None if unavailable.
-        unit: The metric's units (string).
 
     Returns:
         A string representing the value, formatted to appropriate precision, or
         a cross-symbol if value is None.
 
     """
-    if val is None:
-        return "❌"
-    if unit.lower().startswith("percent"):
-        return f"{val:.2f}"
-    return f"{val:.3f}"
+    return format_numeric_value(val)
 
 
 def adjust_unit(unit: str) -> str:
@@ -185,7 +181,7 @@ class MetricTableBuilder:
 
         def build_values(src: T) -> List[str]:
             return [
-                format_value(lookup_value(src.get(k, {})), metric.units) for k in sorted(src.keys())
+                format_value(lookup_value(src.get(k, {}))) for k in sorted(src.keys())
             ]
 
         agg_vals = build_values(self.results.aggregate)
