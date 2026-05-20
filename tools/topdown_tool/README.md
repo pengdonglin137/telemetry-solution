@@ -148,6 +148,7 @@ The extra pulls in devlib from its public GitLab repository. If you need a newer
 Once the dependencies are installed, provide the remote type with `--target-type` and the connection details with `--target-config`. The configuration argument accepts either an inline JSON object or a path to a JSON file. Supported target types are:
 - `ssh` for Linux hosts reachable over SSH.
 - `adb` for Android devices attached through the Android Debug Bridge.
+You can also configure remote targets through environment variables `TOPDOWN_TOOL_TARGET_TYPE` and `TOPDOWN_TOOL_TARGET_CONFIG`. Each value can come from either configuration option; command-line arguments take precedence.
 
 ### Configuration schema
 
@@ -176,7 +177,7 @@ You may also store the JSON in a file (for example `ssh.json`) and pass its path
 topdown-tool --target-type ssh --target-config ssh.json -- ./a.out
 ```
 
-The remote options must be supplied on each invocation and they replace the local perf runner with the remote implementation.
+The remote options must be set via environment variables or supplied on each invocation and they replace the local perf runner with the remote implementation.
 
 ## Choosing what to monitor
 
@@ -250,13 +251,14 @@ Each probe has its own quickstart:
 ## CSV output overview
 
 You can export results to CSV for post-processing:
-- Provide an output directory with `--csv-output-path`.
-- Enable CSV in the probe (for CPU: `--cpu-generate-csv metrics[,events]`).
+- Enable CSV globally with `--generate-csv metrics[,events]` (applies to all CSV-capable probes).
+- Optionally override per probe with `--<probe>-generate-csv ...` (probe-specific wins).
+- Output directory defaults to `tdt_out` when `--csv-output-path` is omitted.
 - Optionally sample periodically with `-I` (interval in ms).
 
 Example:
 ```sh
-topdown-tool --cpu-generate-csv metrics --csv-output-path out -I 1000 -- sleep 10
+topdown-tool --generate-csv metrics --csv-output-path out -I 1000 -- sleep 10
 ```
 
 See [README.CPU.md](./README.CPU.md) and [README.CMN.md](./README.CMN.md) for CSV file names, folder layout, and column details.

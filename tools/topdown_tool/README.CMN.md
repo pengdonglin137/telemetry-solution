@@ -207,7 +207,12 @@ CSV is the easiest way to post-process both metrics and raw events.
   --csv-output-path <directory>
   ```
   A timestamped subdirectory (YYYY_MM_DD_HH_MM_SS) is created automatically.
+  If omitted, the path defaults to `tdt_out`.
 - Enable CSV for metrics and/or events:
+  ```sh
+  --generate-csv metrics[,events]
+  ```
+  Global option applies to all CSV-capable probes. CMN-specific override:
   ```sh
   --cmn-generate-csv metrics[,events]
   ```
@@ -316,11 +321,11 @@ HNS_SLC_Effectiveness,cmn_hns_slc_alloc_invalid_way_rate,PMU_HNS_SLC_FILL_INVALI
   (The option can be repeated to supply multiple CMN specs.)
 - Validate a spec:
   ```sh
-  validate-cmn-spec --file /path/to/custom_cmn.json --schema-dir topdown_tool/cmn_probe/schemas
+  validate-cmn-spec --file /path/to/custom_cmn.json --schema-dir data/pmu/cmn/schemas
   ```
 - Or validate a directory:
   ```sh
-  validate-cmn-spec --spec-dir topdown_tool/cmn_probe/metrics --schema-dir topdown_tool/cmn_probe/schemas
+  validate-cmn-spec --spec-dir data/pmu/cmn/metrics --schema-dir data/pmu/cmn/schemas
   ```
 
 ## CMN Telemetry JSON Shape
@@ -507,13 +512,16 @@ Groups do not change perf encoding. They only describe how events and metrics sh
 - `--cmn-metric-groups`: Comma-separated metric groups to collect (default: all).
 - `--cmn-metrics`: Comma-separated metric names to collect (default: all).
 - `--cmn-indices`: Comma-separated CMN indices to collect.
-- `--cmn-generate-csv`: `metrics`, `events`, or both (requires `--csv-output-path`).
+- `--cmn-generate-csv`: `metrics`, `events`, or both.
+  If `--csv-output-path` is omitted while CSV generation is enabled, it defaults to `tdt_out`.
 - `--cmn-list`, `--cmn-list-devices`, `--cmn-list-groups`, `--cmn-list-metrics`, `--cmn-list-events`: Listing/inspection mode (skips capture).
 - `--cmn-print-descriptions`, `--cmn-show-sample-events`: Expand listing output with descriptions and sample events.
 
 ### Accuracy and detail
 
 - `--cmn-collect-by`: Event grouping when multiplexing (`none` or `metric`, default: `metric`).
+- `--cmn-mux-interval`: CMN perf event multiplexing interval in milliseconds; overrides
+  `--mux-interval`. Defaults to 4 ms.
 - `--cmn-capture-per-device-id`: Collect per-node/device metrics (large tables; not meaningful for topdown metrics).
 
 ### Mesh layout and permissions

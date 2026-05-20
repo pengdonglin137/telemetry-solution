@@ -269,9 +269,19 @@ Override any of the following ``CpuProbeFactoryConfig`` fields to tune behaviour
   captured (same semantics as CLI options).
 - `multiplex`: keep ``True`` (default) to allow multiplexing, or set ``False``
   to capture events in separate passes.
+- `mux_interval_ms`: perf event multiplexing interval in milliseconds. This is
+  equivalent to `--cpu-mux-interval`; when unset, the shared `--mux-interval`
+  or probe/platform default is used.
 
 Fields not listed here—such as `pid_tracking_applicable`—are managed internally
 and do not need to be set by callers.
+
+## Perf event multiplexing interval
+
+Use `--cpu-mux-interval MS` to set the CPU perf event multiplexing interval.
+This overrides `--mux-interval` for the CPU probe. If neither option is
+provided, CPU uses 4 ms. On systems with heterogeneous CPU PMUs, the CPU probe
+applies the interval to each perf event source that exposes a `cpus` file.
 
 ## CSV output
 
@@ -282,7 +292,12 @@ CSV is the easiest way to post-process both metrics and raw events.
 --csv-output-path <directory>
 ```
   A timestamped subdirectory (YYYY_MM_DD_HH_MM_SS) is created automatically.
+  If omitted, the path defaults to `tdt_out`.
 - Enable CSV for metrics and/or events:
+```sh
+--generate-csv metrics[,events]
+```
+  This global option applies to all CSV-capable probes. CPU-specific override:
 ```sh
 --cpu-generate-csv metrics[,events]
 ```
