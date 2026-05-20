@@ -252,6 +252,11 @@ class CmnDatabase:
                 watchpoint_id INTEGER NOT NULL REFERENCES watchpoints(id)
             );
 
+            CREATE TABLE metrics_for_metrics (
+                derived_metric_id INTEGER NOT NULL REFERENCES metrics(id),
+                source_metric_id  INTEGER NOT NULL REFERENCES metrics(id)
+            );
+
             -- Topdown Groups / Topdown Metrics
 
             CREATE TABLE topdown_groups (
@@ -440,6 +445,7 @@ class CmnDatabase:
         # Groups / Metrics / Events / Watchpoints / Filters
         unavailable_device_id: int = 0
         cmn_cycles_inserted: bool = False
+        regular_metric_dependencies: List[Tuple[int, Sequence[str]]] = []
         cursor = self.db_connection.cursor()
         for device_name, spec in specification_json["components"].items():
             # RN-F and SN-F are treated specially as "Port Devices"
@@ -664,6 +670,9 @@ class CmnDatabase:
                     ),
                 )
                 metric_id = cursor.lastrowid
+                assert metric_id is not None
+                if "metrics" in metric_data:
+                    regular_metric_dependencies.append((metric_id, metric_data["metrics"]))
 
                 # Events for metric
                 if "events" in metric_data:
@@ -866,6 +875,25 @@ class CmnDatabase:
                 )
                 while (row := statement.fetchone()) is not None:
                     pass
+
+        for metric_id, metric_dependencies in regular_metric_dependencies:
+            if not metric_dependencies:
+                continue
+            placeholders = ", ".join(["?"] * len(metric_dependencies))
+            params = [metric_id]
+            params.extend(metric_dependencies)
+            cursor.execute(
+                f"""
+                INSERT INTO metrics_for_metrics
+                SELECT
+                    ?,
+                    id
+                FROM
+                    metrics
+                WHERE
+                    name IN ({placeholders})""",
+                params,
+            )
 
         # Topdown metrics
         topdown_metrics_mapping: Dict[str, int] = {}
@@ -1784,6 +1812,66 @@ class CmnDatabase:
             group: tuple(collectable_metrics)
             for group, collectable_metrics in collectable_groups.items()
         }
+
+    def get_metric_dependencies(self, metric: str) -> Tuple[str, ...]:
+        """Return regular base metrics required to calculate a regular metric.
+
+        Args:
+            metric (str): metric name
+
+        Returns:
+            Tuple[str, ...]: directly required regular metric names
+        """
+        statement = self.db_connection.execute(
+            """
+            SELECT
+                source_metrics.name
+            FROM
+                metrics AS derived_metrics
+                INNER JOIN metrics_for_metrics ON derived_metrics.id = derived_metric_id
+                INNER JOIN metrics AS source_metrics ON source_metric_id = source_metrics.id
+            WHERE
+                derived_metrics.name = ?
+            ORDER BY
+                source_metric_id
+        """,
+            (metric,),
+        )
+        dependencies: List[str] = []
+        while (row := statement.fetchone()) is not None:
+            dependencies.append(row[0])
+        return tuple(dependencies)
+
+    def get_metrics_with_dependencies(self, metrics: Sequence[str]) -> Tuple[str, ...]:
+        """Return requested metrics plus recursively required regular metric dependencies.
+
+        Args:
+            metrics (Sequence[str]): requested metric names
+
+        Returns:
+            Tuple[str, ...]: requested metrics followed by dependency metrics
+        """
+        ordered_metrics: List[str] = []
+        added_metrics: Set[str] = set()
+
+        def append_metric(metric: str) -> None:
+            if metric not in added_metrics:
+                ordered_metrics.append(metric)
+                added_metrics.add(metric)
+
+        def add_dependencies(metric: str, stack: Tuple[str, ...]) -> None:
+            if metric in stack:
+                cycle = " → ".join(stack + (metric,))
+                raise RecursionError(f"Metric dependency cycle detected: {cycle}")
+            for dependency in self.get_metric_dependencies(metric):
+                append_metric(dependency)
+                add_dependencies(dependency, stack + (metric,))
+
+        for metric in metrics:
+            append_metric(metric)
+            add_dependencies(metric, ())
+
+        return tuple(ordered_metrics)
 
     # pylint: disable=too-many-arguments, raise-missing-from, too-many-positional-arguments
     def _get_collectable_topdown_metrics_internal(

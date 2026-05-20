@@ -500,8 +500,7 @@ class TelemetrySpecification(BaseModel):
         errors = []
         all_events: Set[str] = set()
         for device, device_data in self.components.items():
-            device_events = set(device_data.events.keys())
-            device_events.discard("SYS_CMN_CYCLES")
+            device_events = set(event_name for event_name, event_data in device_data.events.items() if not event_data.system)
             duplicate_events = all_events.intersection(device_events)
             all_events.update(device_events)
             if duplicate_events:

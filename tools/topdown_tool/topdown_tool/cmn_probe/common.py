@@ -29,6 +29,7 @@ class CmnProbeFactoryConfig:
     metrics: Optional[List[str]] = None
     groups: Optional[List[str]] = None
     capture_per_device_id: bool = False
+    cmn_group_capture_time_multiplier: int = 1
     descriptions: bool = False
     show_sample_events: bool = False
     debug_path: Optional[str] = None
@@ -36,6 +37,7 @@ class CmnProbeFactoryConfig:
     cmn_mesh_layout_input: Optional[str] = None
     cmn_mesh_layout_output: Optional[str] = None
     cmn_specification: Optional[str] = None
+    mux_interval_ms: Optional[int] = None
 
 
 @dataclass(frozen=True)

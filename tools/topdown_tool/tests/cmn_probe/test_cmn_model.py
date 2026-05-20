@@ -11,6 +11,7 @@ from topdown_tool.cmn_probe.cmn_model import (
     _validate_directory,
     _validate_file,
 )
+from topdown_tool.common.telemetry_paths import telemetry_probe_schemas_dir
 
 
 def test_product_configuration_allows_name_revision() -> None:
@@ -63,7 +64,7 @@ def test_validate_file_reports_missing_schema(tmp_path) -> None:
 def test_validate_file_accepts_fixture_schema() -> None:
     base_dir = Path(__file__).resolve().parent
     spec_path = base_dir / "fixtures" / "cmn-700.json"
-    schema_root = base_dir.parent.parent / "topdown_tool" / "cmn_probe" / "schemas"
+    schema_root = telemetry_probe_schemas_dir("cmn")
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore",
@@ -78,7 +79,7 @@ def test_validate_file_accepts_fixture_schema() -> None:
 def test_validate_directory_counts_errors(tmp_path) -> None:
     base_dir = Path(__file__).resolve().parent
     spec_path = base_dir / "fixtures" / "cmn-700.json"
-    schema_root = base_dir.parent.parent / "topdown_tool" / "cmn_probe" / "schemas"
+    schema_root = telemetry_probe_schemas_dir("cmn")
 
     valid_spec = tmp_path / "valid.json"
     valid_spec.write_text(spec_path.read_text())

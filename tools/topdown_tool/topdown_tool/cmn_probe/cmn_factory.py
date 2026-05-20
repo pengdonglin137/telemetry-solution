@@ -1,4 +1,4 @@
-# Copyright 2025 Arm Limited
+# Copyright 2025-2026 Arm Limited
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import sys
+from dataclasses import replace
 from pathlib import Path
 from re import sub
 from subprocess import PIPE, run
@@ -28,14 +29,21 @@ from topdown_tool.cmn_probe.cmn_probe import CmnProbe
 from topdown_tool.cmn_probe.common import CmnProbeFactoryConfig
 from topdown_tool.cmn_probe.windows_perf_parser import WindowsPerfParser
 from topdown_tool.common import ArgsError, range_decode
-from topdown_tool.perf import PerfFactory, perf_factory
+from topdown_tool.common.telemetry_paths import (
+    telemetry_probe_mapping_file,
+    telemetry_probe_metrics_dir,
+    telemetry_probe_schemas_dir,
+)
+from topdown_tool.perf import PerfFactory
 from topdown_tool.perf.event_scheduler import CollectBy
+from topdown_tool.perf.mux_interval import parse_mux_interval, resolve_probe_mux_interval
+from topdown_tool.probe.cli_options import parse_positive_int, resolve_csv_output_targets
 
 
-class CmnProbeFactoryConfigBuilder(
+class CmnProbeFactoryCliConfigBuilder(
     Base.ProbeFactoryCliConfigBuilder[CmnProbeFactoryConfig]
 ):
-    """Builder translating CLI arguments into CmnProbeFactoryConfig instances."""
+    """Build CmnProbeFactoryConfig from CLI arguments."""
 
     def __init__(self, factory: "CmnProbeFactory") -> None:
         self._factory = factory
@@ -118,6 +126,12 @@ class CmnProbeFactoryConfigBuilder(
             help="Collect and display metrics for each CMN node/device individually, rather than only globally. For large meshes it will print very large tables. Not meaningful for collection of topdown metrics.",
         )
         parser.add_argument(
+            "--cmn-group-capture-time-multiplier",
+            type=parse_positive_int,
+            default=1,
+            help="Capture groups for multiplied amount of minimum necessary time",
+        )
+        parser.add_argument(
             "--cmn-print-descriptions", action="store_true", help="Show group/metric descriptions"
         )
         parser.add_argument(
@@ -127,38 +141,51 @@ class CmnProbeFactoryConfigBuilder(
             "--cmn-generate-csv",
             type=lambda s: [x.strip().lower() for x in s.split(",") if x.strip()],
             metavar="metrics[,events]",
-            help="Generate CSV output for one or both: 'metrics' and/or 'events' (comma-separated). Requires --csv-output-path.",
+            help=(
+                "Generate CSV output for one or both: 'metrics' and/or 'events' "
+                "(comma-separated). Writes CSV under --csv-output-path (default: "
+                "'tdt_out')."
+            ),
         )
         parser.add_argument(
             "--cmn-debug-path",
             help="Output directory for perf artefacts (command and output, Linux only)",
         )
+        parser.add_argument(
+            "--cmn-mux-interval",
+            type=parse_mux_interval,
+            metavar="MS",
+            help="CMN perf event mux interval in milliseconds.",
+        )
 
     # pylint: disable=too-many-locals
-    def process_cli_arguments(self, args: argparse.Namespace) -> CmnProbeFactoryConfig:
+    def build_config_from_cli_arguments(
+        self,
+        args: argparse.Namespace,
+        _shared_context: Base.SharedContext,
+    ) -> CmnProbeFactoryConfig:
         """Process and validate command-line arguments for CMN probing. This method updates internal
         configuration based on CLI input.
 
         Args:
             args (argparse.Namespace): Parsed command-line arguments.
+            _shared_context (Base.SharedContext): Invocation-scoped shared
+                context.
 
         Returns:
-            bool: True if actual telemetry capture should proceed; False if only informational
-            output is desired.
+            CmnProbeFactoryConfig: Configuration derived from the CLI
+                namespace.
 
         Raises:
             ArgsError: If required argument combinations are missing.
         """
-        cmn_generate_metrics_csv = (
-            args.cmn_generate_csv is not None and "metrics" in args.cmn_generate_csv
+        effective_generate_csv = resolve_csv_output_targets(
+            probe_values=args.cmn_generate_csv,
+            global_values=getattr(args, "generate_csv", None),
+            probe_option_name="--cmn-generate-csv",
         )
-        cmn_generate_events_csv = (
-            args.cmn_generate_csv is not None and "events" in args.cmn_generate_csv
-        )
-        if args.csv_output_path is None and cmn_generate_metrics_csv:
-            raise ArgsError("CSV output path must be specified with --csv-output-path")
-        if args.csv_output_path is None and cmn_generate_events_csv:
-            raise ArgsError("CSV output path must be specified with --csv-output-path")
+        cmn_generate_metrics_csv = "metrics" in effective_generate_csv
+        cmn_generate_events_csv = "events" in effective_generate_csv
         cmn_list = args.cmn_list
         cmn_list_devices = args.cmn_list_devices
         cmn_list_groups = args.cmn_list_groups
@@ -168,6 +195,7 @@ class CmnProbeFactoryConfigBuilder(
         metrics = args.cmn_metrics
         groups = args.cmn_metric_groups
         capture_per_device_id = args.cmn_capture_per_device_id
+        cmn_group_capture_time_multiplier = args.cmn_group_capture_time_multiplier
         descriptions = args.cmn_print_descriptions
         show_sample_events = args.cmn_show_sample_events
         debug_path = args.cmn_debug_path
@@ -175,7 +203,6 @@ class CmnProbeFactoryConfigBuilder(
         cmn_mesh_layout_input = args.cmn_mesh_layout_input
         cmn_mesh_layout_output = args.cmn_mesh_layout_output
         cmn_specification = args.cmn_specification
-
         return CmnProbeFactoryConfig(
             cmn_generate_metrics_csv=cmn_generate_metrics_csv,
             cmn_generate_events_csv=cmn_generate_events_csv,
@@ -188,6 +215,7 @@ class CmnProbeFactoryConfigBuilder(
             metrics=metrics,
             groups=groups,
             capture_per_device_id=capture_per_device_id,
+            cmn_group_capture_time_multiplier=cmn_group_capture_time_multiplier,
             descriptions=descriptions,
             show_sample_events=show_sample_events,
             debug_path=debug_path,
@@ -195,6 +223,9 @@ class CmnProbeFactoryConfigBuilder(
             cmn_mesh_layout_input=cmn_mesh_layout_input,
             cmn_mesh_layout_output=cmn_mesh_layout_output,
             cmn_specification=cmn_specification,
+            mux_interval_ms=resolve_probe_mux_interval(
+                "CMN", getattr(args, "cmn_mux_interval", None), _shared_context
+            ),
         )
 
 
@@ -204,8 +235,9 @@ class CmnProbeFactory(Base.ProbeFactory):
     CmnProbe instances configured with the appropriate telemetry specification.
     """
 
-    METRICS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "metrics")
-    SCHEMAS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schemas")
+    METRICS_DIR = str(telemetry_probe_metrics_dir("cmn"))
+    SCHEMAS_DIR = str(telemetry_probe_schemas_dir("cmn"))
+    MAPPING_FILE = str(telemetry_probe_mapping_file("cmn"))
 
     @staticmethod
     def parse_cmn_version(version: str) -> str:
@@ -230,6 +262,7 @@ class CmnProbeFactory(Base.ProbeFactory):
         super().__init__()
         self.conf = CmnProbeFactoryConfig()
         self.cmns: Dict[int, Union[int, str]] = {}
+        self._perf_factory: Optional[PerfFactory] = None
 
     def name(self) -> str:
         """Return the name of the probe.
@@ -239,24 +272,31 @@ class CmnProbeFactory(Base.ProbeFactory):
         """
         return "CMN"
 
-    def is_available(self) -> bool:
+    def is_available(self, shared_context: Base.SharedContext) -> bool:
         """Check if CMN probing is available on the current system.
 
         Returns:
             bool: If there is at least one CMN present
         """
+        self._perf_factory = shared_context.perf_factory
         try:
-            self.cmns = perf_factory.get_cmn_version()
+            self.cmns = self._perf_factory.get_cmn_version()
         except RuntimeError:
             return False
         return len(self.cmns) > 0
 
-    def _get_config_builder(self) -> Base.ProbeFactoryCliConfigBuilder[CmnProbeFactoryConfig]:
-        """Construct the CMN probe config builder tied to this factory."""
+    def _get_config_builder(
+        self,
+    ) -> Base.ProbeFactoryCliConfigBuilder[CmnProbeFactoryConfig]:
+        """Construct the CMN probe CLI config builder."""
 
-        return CmnProbeFactoryConfigBuilder(self)
+        return CmnProbeFactoryCliConfigBuilder(self)
 
-    def configure(self, config: CmnProbeFactoryConfig, **kwargs: object) -> bool:
+    def _configure(
+        self,
+        config: CmnProbeFactoryConfig,
+        **kwargs: object,
+    ) -> bool:
         """Apply a configuration for the CMN probe factory.
 
         Args:
@@ -269,6 +309,17 @@ class CmnProbeFactory(Base.ProbeFactory):
             bool: True if telemetry capture should proceed, False when only
                 informational listing is required.
         """
+        shared_context = self.shared_context
+        self._perf_factory = shared_context.perf_factory
+        try:
+            self.cmns = self._perf_factory.get_cmn_version()
+        except RuntimeError:
+            self.cmns = {}
+        if config.mux_interval_ms is None:
+            config = replace(
+                config,
+                mux_interval_ms=resolve_probe_mux_interval("CMN", None, shared_context),
+            )
         self.conf = config
         return not (
             self.conf.cmn_list
@@ -297,7 +348,7 @@ class CmnProbeFactory(Base.ProbeFactory):
         if not os.path.isfile(discovery_tool_path):
             raise Exception("Uninitialized git submodules")
 
-        read_end, write_end = os.pipe2(0)
+        read_end, write_end = os.pipe2(0)  # type: ignore[attr-defined]  # pylint: disable=no-member
         pid = os.fork()
         if pid == 0:
             os.close(read_end)
@@ -337,7 +388,7 @@ class CmnProbeFactory(Base.ProbeFactory):
 
         return topology_json
 
-    def discover_cmn_json_windows(self) -> dict:
+    def discover_cmn_json_windows(self, perf_factory_instance: PerfFactory) -> dict:
         """Run CMN topology discovery tool and return a dict from loaded and parsed JSON file.
 
         Returns:
@@ -345,8 +396,7 @@ class CmnProbeFactory(Base.ProbeFactory):
         """
         result = run(
             [
-                # pylint: disable=protected-access
-                perf_factory._perf_path or "wperf",
+                perf_factory_instance.get_effective_perf_path(),
                 "cmninfo",
                 "--json",
             ],
@@ -360,35 +410,35 @@ class CmnProbeFactory(Base.ProbeFactory):
             cmn["version"] = next(versions_iterator)
         return topology_json
 
-    def discover_cmn(self) -> dict:
+    def discover_cmn(self, perf_factory_instance: PerfFactory) -> dict:
         if sys.platform == "linux":
             return self.discover_cmn_json_linux()
         if sys.platform == "win32":
-            return self.discover_cmn_json_windows()
+            return self.discover_cmn_json_windows(perf_factory_instance)
         raise RuntimeError(f"CMN topology retrieval not supported on {sys.platform}")
 
-    # pylint: disable=too-many-locals, too-many-branches, arguments-differ, too-many-statements
+    # pylint: disable=too-many-locals, too-many-branches, arguments-differ, too-many-statements, too-many-nested-blocks
     def create(
         self,
         capture_data: bool = True,
-        base_csv_dir: Optional[str] = None,
-        perf_factory_instance: PerfFactory = perf_factory,
     ) -> Tuple["CmnProbe", ...]:
         """Create CmnProbe instances based on CLI configuration and detected CMNs.
 
         Args:
-            args (argparse.Namespace): The parsed command-line arguments.
             capture_data (bool, optional): Flag indicating whether telemetry capture should be
-            performed.
+                performed.
                 Defaults to True.
-            base_csv_dir: (str, optional): Base directory for CSV output
-                Defaults to None
-            perf_factory_instance (PerfFactory): PerfFactory class
-                Defaults to PerfFactory from topdown_tool.perf.perf_factory
-
         Returns:
             Tuple[CmnProbe, ...]: A tuple of instantiated CmnProbe objects.
         """
+        shared_context = self.shared_context
+        perf_factory_instance = self._perf_factory or shared_context.perf_factory
+        base_csv_dir = (
+            shared_context.get_or_create_base_csv_dir()
+            if self.conf.cmn_generate_metrics_csv or self.conf.cmn_generate_events_csv
+            else None
+        )
+
         if self.conf.cmn_index is not None and set(self.conf.cmn_index) - set(self.cmns.keys()):
             raise ArgsError("CMN indices to collect must be present on the system")
 
@@ -402,105 +452,67 @@ class CmnProbeFactory(Base.ProbeFactory):
             with open(self.conf.cmn_mesh_layout_input, encoding="utf-8") as topology_file:
                 topology_json = json.load(topology_file)
         else:
-            topology_json = self.discover_cmn()
+            topology_json = self.discover_cmn(perf_factory_instance)
 
             if self.conf.cmn_mesh_layout_output is not None:
                 with open(self.conf.cmn_mesh_layout_output, "w", encoding="utf-8") as topology_file:
                     json.dump(topology_json, topology_file, ensure_ascii=False, indent=4)
 
-        cmn_indices_by_version: Dict[str, List[int]] = {}
-        cmns_json_files_in_use: Dict[str, Dict[str, Optional[str]]] = {}
-        version: Optional[str] = None
-        revision: Optional[str] = None
-
-        # User overridden mapping of CMN version to a JSON description file
-        if self.conf.cmn_specification is not None:
-            json_correct, error = _validate_file(Path(self.conf.cmn_specification), Path(self.SCHEMAS_DIR))
-            if not json_correct:
-                raise Exception(error)
-            with open(self.conf.cmn_specification, encoding="utf-8") as cmn_specification_file:
-                cmn_description_json = json.load(cmn_specification_file)
-
-            # Version & Revision
-            product_configuration = cmn_description_json["product_configuration"]
-            version = self.parse_cmn_version(product_configuration["product_name"])
-            major_revision = product_configuration["major_revision"]
-            minor_revision = product_configuration["minor_revision"]
-            revision = f"R{major_revision}P{minor_revision}"
-            full_version = f"cmn_{version.lower()}_{revision.lower()}"
-
-            # Assume all indices contain the same version provided by the user
-            for cmn_index in self.cmns:
-                self.cmns[cmn_index] = full_version
-            cmn_indices_by_version[full_version] = list(self.cmns.keys())
-
-            # User overridden mapping of CMN version to a JSON description file
-            cmns_json_files_in_use[full_version] = {
-                "path": self.conf.cmn_specification,
-                "content": cmn_description_json,
-            }
-        else:
-            # Load mapping file
-            mapping_json: dict
-            with open(os.path.join(self.METRICS_DIR, "mapping.json"), encoding="utf-8") as mapping_file:
-                mapping_json = json.load(mapping_file)
-            current_cmn_indices = tuple(self.cmns.keys())
-            for cmn_index in current_cmn_indices:
-                identifier = self.cmns[cmn_index]
-                version = None
-                revision = None
-                if isinstance(identifier, int):
-                    numeric_version = (identifier & 0xFFF00) >> 8
-                    numeric_revision = identifier & 0xFF
-                    try:
-                        cmn_version_data = mapping_json[f"0x{numeric_version:X}"]
-                    except KeyError:
-                        logging.warning("Unknown CMN numeric version 0x%X at index %d", numeric_version, cmn_index)
-                        del self.cmns[cmn_index]
-                        continue
-                    version = cmn_version_data["product_version"]
-                    try:
-                        revision = cmn_version_data[f"0x{numeric_revision:X}"]
-                    except KeyError:
-                        revision = cmn_version_data["linux_default_revision"]
-                elif isinstance(identifier, str):
-                    version = self.parse_cmn_version(identifier)
-                    found = False
-                    for cmn_version_data in mapping_json.values():
-                        if cmn_version_data["product_version"] == version:
-                            found = True
-                            break
-                    if not found:
-                        logging.warning("Unknown CMN version %s at index %d", version, cmn_index)
-                        del self.cmns[cmn_index]
-                        continue
-                    revision = cmn_version_data["windows_revision"]  # pylint: disable=undefined-loop-variable
-                if revision is None:
-                    logging.warning("Unknown CMN-%s revision %d at index %d", version, numeric_revision, cmn_index)
-                if version is None or revision is None:
+        # Load mapping file
+        mapping_json: dict
+        with open(self.MAPPING_FILE, encoding="utf-8") as mapping_file:
+            mapping_json = json.load(mapping_file)
+        cmn_version_mapping: Dict[int, str] = {cmn_data["product_version"]: cmn_version for cmn_version, cmn_data in mapping_json.items()}
+        current_cmn_indices = tuple(self.cmns.keys())
+        for cmn_index in current_cmn_indices:
+            identifier = self.cmns[cmn_index]
+            version: Optional[str] = None
+            revision: Optional[str] = None
+            if isinstance(identifier, int):
+                numeric_version = (identifier & 0xFFF00) >> 8
+                numeric_revision = identifier & 0xFF
+                try:
+                    version = cmn_version_mapping[numeric_version]
+                except KeyError:
+                    logging.warning("Unknown CMN numeric version 0x%X at index %d", numeric_version, cmn_index)
                     del self.cmns[cmn_index]
                     continue
-                self.cmns[cmn_index] = f"cmn_{version.lower()}_{revision.lower()}"
-
-            # CMNs requested to capture
-            for cmn_index, cmn in enumerate(topology_json["elements"]):
-                if cmn_index not in self.cmns:
-                    logging.warning("Skipping CMN #%d due to undetected version/revision", cmn_index)
+                try:
+                    revision = mapping_json[version]["revisions"][numeric_revision]
+                except IndexError:
+                    logging.warning("Unknown CMN-%s numeric revision %d at index %d", version, numeric_revision, cmn_index)
+                    del self.cmns[cmn_index]
                     continue
-                if self.conf.cmn_index is not None and cmn_index not in self.conf.cmn_index:
+            elif isinstance(identifier, str):
+                version = self.parse_cmn_version(identifier)
+                if version not in mapping_json:
+                    logging.warning("Unknown CMN version %s at index %d", version, cmn_index)
+                    del self.cmns[cmn_index]
                     continue
-                cmn_version = self.cmns[cmn_index]
-                cmn_json_version = "cmn_" + self.parse_cmn_version(cmn["version"]).lower()
-                assert isinstance(cmn_version, str) and cmn_version.startswith(cmn_json_version)
-                cmn_indices_by_version.setdefault(cmn_version, []).append(cmn_index)
+                revision = mapping_json[version]["windows_revision"]
+                if revision is None:
+                    logging.warning("CMN-%s unsupported on Windows", version)
+                    del self.cmns[cmn_index]
+                    continue
+            if revision is None:
+                logging.warning("Unknown CMN-%s revision %d at index %d", version, numeric_revision, cmn_index)
+            if version is None or revision is None:
+                del self.cmns[cmn_index]
+                continue
+            self.cmns[cmn_index] = f"cmn_{version.lower()}_{revision.lower()}"
 
-            # Default mapping of CMN version to a JSON description file
-            for cmn_version in cmn_indices_by_version:
-                attempt_filename = os.path.join(self.METRICS_DIR, f"{cmn_version}_pmu.json")
-                cmns_json_files_in_use[cmn_version] = {
-                    "path": attempt_filename if os.path.isfile(attempt_filename) else None,
-                    "content": None,
-                }
+        # CMNs requested to capture
+        cmn_indices_by_version: Dict[str, List[int]] = {}
+        for cmn_index, cmn in enumerate(topology_json["elements"]):
+            if cmn_index not in self.cmns:
+                logging.warning("Skipping CMN #%d due to undetected version/revision", cmn_index)
+                continue
+            if self.conf.cmn_index is not None and cmn_index not in self.conf.cmn_index:
+                continue
+            cmn_version = self.cmns[cmn_index]
+            cmn_json_version = "cmn_" + self.parse_cmn_version(cmn["version"]).lower()
+            assert isinstance(cmn_version, str) and cmn_version.startswith(cmn_json_version)
+            cmn_indices_by_version.setdefault(cmn_version, []).append(cmn_index)
 
         # List available CMNs
         if self.conf.cmn_list:
@@ -512,6 +524,31 @@ class CmnProbeFactory(Base.ProbeFactory):
                 v1, v2, v3 = cmn_version.upper().split("_", 2)
                 table.add_row(f"{v1}-{v2} {v3}", ", ".join(map(str, cmn_indices)))
             console.print(table)
+
+        # Default mapping of CMN version to a JSON description file
+        cmns_json_files_in_use: Dict[str, Dict[str, Optional[str]]] = {}
+        for cmn_version in cmn_indices_by_version:
+            attempt_filename = os.path.join(self.METRICS_DIR, f"{cmn_version}_pmu.json")
+            cmns_json_files_in_use[cmn_version] = {
+                "path": attempt_filename if os.path.isfile(attempt_filename) else None,
+                "content": None,
+            }
+
+        # User overridden mapping of CMN version to a JSON description file
+        if self.conf.cmn_specification is not None:
+            cmn_filename = self.conf.cmn_specification
+            json_correct, error = _validate_file(Path(cmn_filename), Path(self.SCHEMAS_DIR))
+            if not json_correct:
+                raise Exception(error)
+            with open(cmn_filename, encoding="utf-8") as cmn_specification_file:
+                cmn_description_json = json.load(cmn_specification_file)
+            product_version = self.parse_cmn_version(cmn_description_json["product_configuration"]["product_name"]).lower()
+            major_revision = cmn_description_json["product_configuration"]["major_revision"]
+            minor_revision = cmn_description_json["product_configuration"]["minor_revision"]
+            full_version = f"cmn_{product_version}_r{major_revision}p{minor_revision}"
+            if full_version in cmns_json_files_in_use:
+                cmns_json_files_in_use[full_version]["path"] = cmn_filename
+                cmns_json_files_in_use[full_version]["content"] = cmn_description_json
 
         # Load default JSON files
         for cmn_file in cmns_json_files_in_use.values():

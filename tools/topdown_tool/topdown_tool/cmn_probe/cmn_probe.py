@@ -1,4 +1,4 @@
-# Copyright 2025 Arm Limited
+# Copyright 2025-2026 Arm Limited
 # SPDX-License-Identifier: Apache-2.0
 
 # pylint: disable=too-many-lines
@@ -24,7 +24,7 @@ from sys import platform
 from threading import Event as ThreadEvent
 from threading import Lock, Thread
 from time import time
-from typing import Callable, Dict, Iterator, List, Optional, Set, Tuple, TypedDict, Union, cast
+from typing import Callable, Dict, Iterator, List, Optional, Sequence, Set, Tuple, TypedDict, Union, cast
 
 from rich import get_console
 from rich.table import Table
@@ -46,9 +46,11 @@ from topdown_tool.cmn_probe.common import (
 from topdown_tool.cmn_probe.multi_cmn_scheduler import MultiCmnScheduler
 from topdown_tool.cmn_probe.scheduler import CmnInfo
 from topdown_tool.common import simple_maths
+from topdown_tool.common.numeric_format import format_numeric_value
 from topdown_tool.layout import Header, SplitTable
-from topdown_tool.perf import PerfFactory, perf_factory
+from topdown_tool.perf import PerfFactory
 from topdown_tool.perf.event_scheduler import CollectBy
+from topdown_tool.perf.mux_interval import MuxIntervalRequest, mux_interval_path
 from topdown_tool.perf.perf import Perf
 from topdown_tool.perf.windows_perf import WindowsPerf
 
@@ -111,7 +113,7 @@ class CmnProbe(Base.Probe):
         database: CmnDatabase,
         capture_data: bool,
         base_csv_dir: Optional[str],
-        perf_factory_instance: PerfFactory = perf_factory,
+        perf_factory_instance: PerfFactory,
     ):
         super().__init__()
 
@@ -162,8 +164,6 @@ class CmnProbe(Base.Probe):
         self.max_mux_interval: int = 1
         for cmn_index in self.database.cmn_indices:
             self.frequency[cmn_index] = perf_class.get_cmn_frequency(cmn_index)
-            max_mux_interval = perf_class.get_cmn_mux_interval(cmn_index)
-            self.max_mux_interval = max(self.max_mux_interval, max_mux_interval)
 
         self.metrics_to_collect: Dict[str, Tuple[str, ...]]
 
@@ -245,9 +245,18 @@ class CmnProbe(Base.Probe):
             assert isinstance(metrics_to_collect, dict)
             self.metrics_to_collect = metrics_to_collect
         else:
-            logging.info("No CMN metrics to collect")
+            logging.warning("No CMN metrics to collect")
             self.capture_data = False
             return
+
+        self.metrics_to_display: Dict[str, Tuple[str, ...]] = {
+            group_name: tuple(metrics)
+            for group_name, metrics in self.metrics_to_collect.items()
+        }
+        self.metrics_to_collect = {
+            group_name: self.database.get_metrics_with_dependencies(metrics)
+            for group_name, metrics in self.metrics_to_collect.items()
+        }
 
         # Create schedule for CMN
         self.create_schedule()
@@ -263,6 +272,10 @@ class CmnProbe(Base.Probe):
         """
         return self.perf_factory.get_platform_class() is WindowsPerf
 
+    def should_display_base_metric(self, group_name: str, metric_name: str) -> bool:
+        """Return whether a base metric was directly requested for output."""
+        return metric_name in self.metrics_to_display[group_name]
+
     def need_capture(self) -> bool:
         """Returns information whether capture is needed. CMN requires a single capture due to
         enforced multiplexing. Returns true for the first call and false for each subsequent call.
@@ -276,12 +289,33 @@ class CmnProbe(Base.Probe):
         self.captured = True
         return not captured
 
+    def get_mux_interval_requests(self) -> Sequence[MuxIntervalRequest]:
+        if not self.capture_data or self.conf.mux_interval_ms is None:
+            return ()
+        return tuple(
+            MuxIntervalRequest(
+                mux_interval_path(f"arm_cmn_{cmn_index}"),
+                self.conf.mux_interval_ms,
+            )
+            for cmn_index in self.database.cmn_indices
+        )
+
+    def _refresh_max_mux_interval(self) -> None:
+        perf_class = self.perf_factory.get_platform_class()
+        self.max_mux_interval = 1
+        for cmn_index in self.database.cmn_indices:
+            max_mux_interval = perf_class.get_cmn_mux_interval(cmn_index)
+            self.max_mux_interval = max(self.max_mux_interval, max_mux_interval)
+
     # pylint: disable=consider-merging-isinstance, too-many-locals
     def create_schedule(self) -> None:
         """Prepares a capture schedule for either base metrics or topdown metrics
         """
         # Keys: Metric Name
         self.metrics_details: Dict[str, MetricDetails] = {}
+
+        # Keys: Metric Name
+        self.metric_dependencies: Dict[str, Tuple[str, ...]] = {}
 
         # Keys: Topdown Metric Name
         self.topdown_metrics_details: Dict[str, TopdownMetricDetails] = {}
@@ -393,6 +427,8 @@ class CmnProbe(Base.Probe):
                 self.group_data[group_name]["metrics_values"][metric_name] = {}
                 if metric_name not in self.metrics_details:
                     self.metrics_details[metric_name] = self.database.get_metric_details(metric_name)
+                if metric_name not in self.metric_dependencies:
+                    self.metric_dependencies[metric_name] = self.database.get_metric_dependencies(metric_name)
                 for location, events in located_metric.items():
                     used_cmns.add(location.cmn_index)
                     self.group_data[group_name]["events_values"][metric_name][location] = {}
@@ -406,6 +442,25 @@ class CmnProbe(Base.Probe):
                             self.group_data[group_name]["events_values"][metric_name][location][
                                 event[0].name
                             ] = EventResult(value=None, subevent_count=len(event))
+
+            progress = True
+            while progress:
+                progress = False
+                for metric_name in metrics:
+                    dependencies = self.metric_dependencies[metric_name]
+                    if not dependencies:
+                        continue
+                    dependency_locations: Set[Location] = set()
+                    for dependency in dependencies:
+                        dependency_locations.update(
+                            self.group_data[group_name]["metrics_values"][dependency].keys()
+                        )
+                    for location in dependency_locations:
+                        if location not in self.group_data[group_name]["metrics_values"][metric_name]:
+                            used_cmns.add(location.cmn_index)
+                            self.group_data[group_name]["events_values"][metric_name][location] = {}
+                            self.group_data[group_name]["metrics_values"][metric_name][location] = None
+                            progress = True
 
             scheduler = MultiCmnScheduler(self.group_data[group_name]["events_for_perf"], cmn_info_map)
             self.group_data[group_name]["scheduler"] = scheduler
@@ -452,6 +507,7 @@ class CmnProbe(Base.Probe):
         else:
             self.tmp_dir = tempfile.mkdtemp()
 
+        self._refresh_max_mux_interval()
         self.capture_thread_state = CaptureState.RUNNING
 
         self.capture_thread = Thread(target=self.thread_func)
@@ -474,6 +530,8 @@ class CmnProbe(Base.Probe):
 
         for metric_name, metric in self.group_data[group_name]["events_values"].items():
             for location, located_metric in metric.items():
+                if location not in self.group_data[group_name]["original_metrics"][metric_name]:
+                    continue
                 key = tuple(event for event_list in self.group_data[group_name]["original_metrics"][metric_name][location] for event in (event_list if isinstance(event_list, list) else [event_list]))
                 perf_event_iterator = iter(records[key])
                 for event_result in located_metric.values():
@@ -539,6 +597,9 @@ class CmnProbe(Base.Probe):
         # perf run
         run = 0
 
+        # Groups not captured at least 1 time
+        groups_not_captured = set(self.group_data.keys())
+
         # Time needed to scale events results (also needed for some topdown metrics)
         global_start_time = time()
 
@@ -550,11 +611,13 @@ class CmnProbe(Base.Probe):
                 if self.capture_thread_state == CaptureState.STOP_REQUESTED:
                     global_stop_time = time()
                     self.total_running_time = global_stop_time - global_start_time
+                    for uncaptured_group in groups_not_captured:
+                        logging.warning("Group %s not captured due to insufficient capture time", uncaptured_group)
                     self.capture_thread_state_mtx.release()
                     return
 
                 run += 1
-                logging.debug("Perf run #%d Group #%s", run, group_name)
+                logging.debug("Perf run #%d Group %s", run, group_name)
                 dir_for_run = os.path.join(self.tmp_dir, str(run))
                 os.mkdir(dir_for_run)
                 if len(self.group_data) == 1:
@@ -562,7 +625,7 @@ class CmnProbe(Base.Probe):
                 else:
                     timeout = int(
                         max(
-                            len(optimized_perf_groups) * self.max_mux_interval,
+                            len(optimized_perf_groups) * self.max_mux_interval * self.conf.cmn_group_capture_time_multiplier,
                             100,
                         )
                     )
@@ -649,6 +712,8 @@ class CmnProbe(Base.Probe):
                             restored_perf_result,
                         ),
                     )
+
+                groups_not_captured.discard(group_name)
 
     def stop_capture(
         self, run: int = 1, pid: Optional[int] = None, interrupted: bool = False
@@ -767,6 +832,43 @@ class CmnProbe(Base.Probe):
                         # Metric incalculable
                         pass
 
+        progress = True
+        while progress:
+            progress = False
+            for base_group_name in self.group_data:
+                base_group = self.group_data[base_group_name]["metrics_values"]
+                for base_metric_name, base_metric in base_group.items():
+                    dependencies = self.metric_dependencies[base_metric_name]
+                    if not dependencies:
+                        continue
+                    for location in base_metric:
+                        equation = self.metrics_details[base_metric_name].formula
+                        equation = sub(r"\b" + "texec" + r"\b", str(self.total_running_time), equation)
+                        equation = sub(
+                            r"\b" + "SYS_FREQUENCY" + r"\b",
+                            str(self.frequency[location.cmn_index]),
+                            equation,
+                        )
+                        missing_dependency = False
+                        for dependency in dependencies:
+                            try:
+                                value = base_group[dependency][location]
+                            except KeyError:
+                                value = None
+                            if value is None:
+                                missing_dependency = True
+                                break
+                            equation = sub(r"\b" + dependency + r"\b", str(value), equation)
+                        if missing_dependency:
+                            continue
+                        try:
+                            value = simple_maths.evaluate(equation)
+                        except Exception:  # pylint: disable=broad-exception-caught
+                            continue
+                        if base_metric[location] != value:
+                            base_metric[location] = value
+                            progress = True
+
         # Update Topdown Metrics
         for topdown_group_name in self.group_data:
             topdown_group = self.group_data[topdown_group_name]["topdown_metrics_values"]
@@ -801,7 +903,7 @@ class CmnProbe(Base.Probe):
                     except Exception:  # pylint: disable=broad-exception-caught
                         topdown_metric[location] = equation
             # Substitute topdown metrics
-            progress: bool = True
+            progress = True
             while progress:
                 progress = False
                 for topdown_metric_name, topdown_metric in topdown_group.items():
@@ -1130,11 +1232,12 @@ class CmnProbe(Base.Probe):
                             value = metric[CmnLocation(cmn_index=cmn_index)]
                         except KeyError:
                             continue
+                        rendered_value = str(value) if isinstance(value, str) else format_numeric_value(value)
                         rows.append(
                             (
                                 self.topdown_metrics_details[metric_name].title,
                                 self.topdown_metrics_details[metric_name].description,
-                                str(value) if value is not None and value == value else "❌",
+                                rendered_value,
                                 self.topdown_metrics_details[metric_name].units,
                             )
                         )
@@ -1142,11 +1245,12 @@ class CmnProbe(Base.Probe):
                 if group_name in self.collectable_base_metrics_for_topdown_groups:
                     for metric_name in self.collectable_base_metrics_for_topdown_groups[group_name]:
                         value = self.group_data[group_name]["metrics_values"][metric_name][CmnLocation(cmn_index=cmn_index)]
+                        rendered_value = str(value) if isinstance(value, str) else format_numeric_value(value)
                         rows.append(
                             (
                                 self.metrics_details[metric_name].title,
                                 self.metrics_details[metric_name].description,
-                                str(value) if value is not None and value == value else "❌",
+                                rendered_value,
                                 self.metrics_details[metric_name].units,
                             )
                         )
@@ -1174,6 +1278,8 @@ class CmnProbe(Base.Probe):
 
                 device_groups: Dict[Tuple[Optional[int], Optional[int]], Dict[str, Dict[Location, Optional[float]]]] = {}
                 for metric_name, metric_values in group.items():
+                    if not self.should_display_base_metric(group_name, metric_name):
+                        continue
                     metric_details = self.metrics_details[metric_name]
                     key = (metric_details.node_device_id, metric_details.port_device_id)
                     device_groups.setdefault(key, {})[metric_name] = metric_values
@@ -1305,7 +1411,9 @@ class CmnProbe(Base.Probe):
                         row_data = ["❌"] * len(header_row_data)
                         for location, value in metric.items():
                             if location.cmn_index == cmn_index and value is not None and value == value:
-                                row_data[mapping[location]] = str(value)
+                                row_data[mapping[location]] = format_numeric_value(
+                                    value
+                                )
                         # Prefix
                         metric_details = self.metrics_details[metric_name]
                         row_prefix = [metric_details.title]
@@ -1402,6 +1510,8 @@ class CmnProbe(Base.Probe):
                         continue
                     groups = self.group_data[group_name]["metrics_values"]
                     for metric_name, metric in groups.items():
+                        if not self.should_display_base_metric(group_name, metric_name):
+                            continue
                         for location, value in metric.items():
                             if location.cmn_index == cmn_index:
                                 node_id: Optional[int]

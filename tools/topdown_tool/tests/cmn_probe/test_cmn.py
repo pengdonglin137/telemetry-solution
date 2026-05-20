@@ -1,4 +1,4 @@
-# Copyright 2025 Arm Limited
+# Copyright 2025-2026 Arm Limited
 # SPDX-License-Identifier: Apache-2.0
 
 from hashlib import sha1
@@ -6,9 +6,11 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Event
 from typing import Dict, List, Optional, Sequence, Tuple, Type, TypedDict, Union
+from rich import reconfigure
 
 import pytest
 
+import topdown_tool.cmn_probe.cmn_probe as cmn_probe_module
 from topdown_tool.cmn_probe.cmn_factory import CmnProbeFactory
 from topdown_tool.cmn_probe.cmn_probe import CmnProbe
 from topdown_tool.perf.event_scheduler import CollectBy
@@ -20,7 +22,7 @@ from topdown_tool.perf.perf import (
     Uncore,
 )
 from topdown_tool.perf.perf_factory import PerfFactory
-from topdown_tool.probe.probe import Probe
+from topdown_tool.probe.probe import Probe, SharedContext
 from tests.cmn_probe.helpers import assert_reference_file, assert_reference_text
 
 
@@ -142,12 +144,19 @@ class FakePerf(Perf):
 
 
 class FakePerfFactory(PerfFactory):
+    def __init__(self, cmn_versions: Optional[Dict[int, Union[int, str]]] = None) -> None:
+        super().__init__()
+        self._cmn_versions = dict(cmn_versions or {})
+
     @staticmethod
     def get_platform_class() -> Type[Perf]:
         return FakePerf
 
     def create(self) -> Perf:
         return FakePerf()
+
+    def get_cmn_version(self) -> Dict[int, Union[int, str]]:
+        return dict(self._cmn_versions)
 
 
 class Scenario(TypedDict):
@@ -163,7 +172,10 @@ class Setup(TypedDict):
 
 @pytest.fixture
 def setup_environment(monkeypatch) -> Setup:
-    monkeypatch.setenv("COLUMNS", "160")
+    monkeypatch.setattr(cmn_probe_module, "platform", "linux")
+    test_console_width = 160
+    monkeypatch.setenv("COLUMNS", str(test_console_width))
+    reconfigure(width=test_console_width, force_terminal=False, color_system=None)
 
     capture_event = Event()
     FakePerf.capture_event = capture_event
@@ -175,6 +187,7 @@ def setup_environment(monkeypatch) -> Setup:
             "capture_event": capture_event,
         }
 
+    reconfigure()
     FakePerf.capture_event = None
     FakePerf.first_events_groups = None
 
@@ -338,7 +351,7 @@ SCENARIOS: List[Scenario] = [
         "capture_per_device_id": True,
         "groups": [
             "CMN_Requestor_Target_Characterization_Level_One",
-            "CMN_Requestor_Bandwidth",
+            "stage_one_requestor_bw",
         ],
         "collect_by": CollectBy.NONE,
     },
@@ -358,10 +371,16 @@ def test_cmn_capture(regen_reference_mode, capsys, setup_environment, scenario: 
     cmn_factory.conf.capture_per_device_id = scenario["capture_per_device_id"]
     cmn_factory.conf.groups = scenario["groups"]
     _set_default_cmns(cmn_factory)
-
-    cmn_probes: Tuple[CmnProbe] = cmn_factory.create(
-        True, str(tmp_dir), FakePerfFactory()
+    fake_perf_factory = FakePerfFactory({0: 0x43C00, 1: 0x43C00})
+    cmn_factory.configure(
+        cmn_factory.conf,
+        SharedContext(
+            perf_factory=fake_perf_factory,
+            base_csv_dir=str(tmp_dir),
+        ),
     )
+
+    cmn_probes: Tuple[CmnProbe] = cmn_factory.create(True)
     cmn_probe: CmnProbe = cmn_probes[0]
 
     cmn_probe.create_schedule()
@@ -404,8 +423,9 @@ def test_cmn_capture(regen_reference_mode, capsys, setup_environment, scenario: 
 def test_cmn_factory_list(regen_reference_mode, capsys, setup_environment) -> None:
     cmn_factory = _build_factory()
     cmn_factory.conf.cmn_list = True
+    cmn_factory._shared_context = SharedContext(perf_factory=FakePerfFactory())
 
-    cmn_factory.create(perf_factory_instance=FakePerfFactory())
+    cmn_factory.create()
 
     captured = capsys.readouterr()
     assert_reference_text(
@@ -432,8 +452,9 @@ def test_cmn_probe_list(
     _set_default_cmns(cmn_factory)
 
     setattr(cmn_factory.conf, attr_name, attr_value)
+    cmn_factory._shared_context = SharedContext(perf_factory=FakePerfFactory())
 
-    cmn_factory.create(perf_factory_instance=FakePerfFactory())
+    cmn_factory.create()
 
     captured = capsys.readouterr()
     assert_reference_text(
