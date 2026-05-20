@@ -44,6 +44,16 @@
   #define L2D_CACHE_LINE_SIZE (64)
   #define L2D_CACHE_SIZE (1 * 1024 * 1024)
   #define STORE_BUFFER_SIZE (26) /* FIXME */
+#elif defined(CPU_NEOVERSE_V3)
+  #define L1D_CACHE_ASSOCIATIVITY (4)
+  #define L1D_CACHE_LINE_SIZE (64)
+  #define L1D_CACHE_SIZE (64 * 1024)
+  #define L1I_CACHE_SIZE (64 * 1024)
+  #define L1D_TLB_SIZE (96)
+  #define L2D_CACHE_ASSOCIATIVITY (8)
+  #define L2D_CACHE_LINE_SIZE (64)
+  #define L2D_CACHE_SIZE (2 * 1024 * 1024)
+  #define STORE_BUFFER_SIZE (26)
 #elif defined(CPU_NONE)
   #error Please specify CPU. E.g. make CPU=NEOVERSE-V1.
 #else
