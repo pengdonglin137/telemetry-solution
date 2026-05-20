@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright 2025 Arm Limited
+# Copyright 2025-2026 Arm Limited
 
 """Workload Automation instrument for integrating Arm Top-Down tool."""
 
@@ -13,9 +13,10 @@ from topdown_tool.common import remote_target_manager
 from topdown_tool.common.remote_utils import remote_cleanup_target_temp_dirs
 from topdown_tool.cpu_probe import CpuProbeFactory, CpuProbeFactoryConfig
 from topdown_tool.cpu_probe.common import DEFAULT_ALL_STAGES, CpuProbeConfiguration
-from topdown_tool.perf import perf_factory
+from topdown_tool.perf import PerfFactory
 from topdown_tool.perf.event_scheduler import CollectBy
 from topdown_tool.perf.perf_factory import PerfFactoryConfig
+from topdown_tool.probe.probe import SharedContext
 
 try:  # pragma: no cover - optional WA dependency for linting environments
     from wa import Instrument, Parameter
@@ -73,6 +74,7 @@ class TopdownInstrument(Instrument):
         self._running_probes: Tuple[Probe, ...] = tuple()
         self._capture_active: bool = False
         self._cpu_factory: Optional[CpuProbeFactory] = None
+        self._perf_factory: Optional[PerfFactory] = None
         self.cpu_csv_path: str = ""
 
     def initialize(self, _context: ExecutionContext):
@@ -101,12 +103,14 @@ class TopdownInstrument(Instrument):
         perf_config = self._build_perf_config()
         self._configure_perf(perf_config)
         cpu_config = self._build_cpu_factory_config()
-        should_capture = self._configure_cpu_factory(cpu_config)
-
-        probes = self._cpu_factory.create(
-            capture_data=should_capture,
+        assert self._perf_factory is not None
+        shared_context = SharedContext(
+            perf_factory=self._perf_factory,
             base_csv_dir=self.cpu_csv_path,
         )
+        should_capture = self._configure_cpu_factory(cpu_config, shared_context)
+
+        probes = self._cpu_factory.create(capture_data=should_capture)
         self._probes = probes
 
         if not self._prepare_probe_execution(probes, should_capture):
@@ -120,6 +124,7 @@ class TopdownInstrument(Instrument):
         self._clear_probe_state()
         self._capture_active = False
         self._cpu_factory = CpuProbeFactory()
+        self._perf_factory = None
 
     def _prepare_target(self, target: Optional[object]) -> None:
         if getattr(target, "is_connected", True) is False:
@@ -137,6 +142,7 @@ class TopdownInstrument(Instrument):
         return self.cpu_csv_path
 
     def _configure_perf(self, config: PerfFactoryConfig) -> None:
+        perf_factory = PerfFactory()
         perf_factory.configure(config)
         if not perf_factory.have_perf_privilege():
             raise RuntimeError(
@@ -146,10 +152,15 @@ class TopdownInstrument(Instrument):
             raise RuntimeError(
                 f"Perf tool at {perf_factory.get_effective_perf_path()} is not runnable."
             )
+        self._perf_factory = perf_factory
 
-    def _configure_cpu_factory(self, config: CpuProbeFactoryConfig) -> bool:
+    def _configure_cpu_factory(
+        self,
+        config: CpuProbeFactoryConfig,
+        shared_context: SharedContext,
+    ) -> bool:
         assert self._cpu_factory is not None
-        return self._cpu_factory.configure(config)
+        return self._cpu_factory.configure(config, shared_context)
 
     def _build_cpu_factory_config(self) -> CpuProbeFactoryConfig:
         base = self._parse_cpu_config()

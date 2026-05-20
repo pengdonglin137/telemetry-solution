@@ -1,10 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2025 Arm Limited
 
-import pytest
 import os
+import sys
+
+import pytest
 
 from topdown_tool.workload import CommandWorkload
+
+pytestmark = pytest.mark.skipif(
+    sys.platform not in ("linux", "win32"),
+    reason="CommandWorkload local runner is only implemented on Linux and Windows.",
+)
 
 
 def test_command_valid():
