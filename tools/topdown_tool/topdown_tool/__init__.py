@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright 2025 Arm Limited
+# Copyright 2025-2026 Arm Limited
 """Public entry points for interacting with Topdown telemetry probes.
 
 The package surface mirrors the canonical probe interfaces and exposes helpers
@@ -11,6 +11,7 @@ other tools.
     from topdown_tool import (
         load_probe_factories,
         ProbeFactory,
+        SharedContext,
         Probe,
         set_remote_target,
         Target,
@@ -35,6 +36,7 @@ from topdown_tool.common.remote_target_manager import (
 Probe = _probe_module.Probe
 ProbeFactory = _probe_module.ProbeFactory
 ProbeFactoryCliConfigBuilder = _probe_module.ProbeFactoryCliConfigBuilder
+SharedContext = _probe_module.SharedContext
 load_probe_factories = _probe_module.load_probe_factories
 PROBE_PUBLIC_EXPORTS = _probe_module.PROBE_PUBLIC_EXPORTS
 del _probe_module

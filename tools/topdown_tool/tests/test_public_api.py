@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright 2025 Arm Limited
+# Copyright 2025-2026 Arm Limited
 
 """Unit tests covering the public re-exports under ``topdown_tool``."""
 
@@ -13,6 +13,7 @@ from topdown_tool import (
     Probe,
     ProbeFactory,
     ProbeFactoryCliConfigBuilder,
+    SharedContext,
     Target,
     get_remote_target,
     get_target_os,
@@ -24,6 +25,7 @@ from topdown_tool import (
 )
 from topdown_tool.common import remote_target_manager
 from topdown_tool.common.devlib_types import Target as UnderlyingTarget
+from topdown_tool.perf.perf_factory import PerfFactory
 from topdown_tool.probe.probe import Probe as ProbeDefinition
 from topdown_tool.probe.probe import ProbeFactory as ProbeFactoryDefinition
 from topdown_tool.probe.probe import (
@@ -55,6 +57,9 @@ class _DummyProbe(Probe):
     def need_capture(self) -> bool:
         return not self.started
 
+    def get_mux_interval_requests(self) -> Tuple[object, ...]:
+        return ()
+
     def output(self) -> None:
         self.output_called = True
 
@@ -67,13 +72,15 @@ class _DummyBuilder(ProbeFactoryCliConfigBuilder[_DummyConfig]):
     def __init__(self, factory: "_DummyFactory") -> None:
         self._factory = factory
         self.add_called_with: Optional[argparse.ArgumentParser] = None
-        self.process_called_with: Optional[argparse.Namespace] = None
+        self.build_called_with: Optional[argparse.Namespace] = None
 
     def add_cli_arguments(self, parser: argparse.ArgumentParser) -> None:
         self.add_called_with = parser
 
-    def process_cli_arguments(self, args: argparse.Namespace) -> _DummyConfig:
-        self.process_called_with = args
+    def build_config_from_cli_arguments(
+        self, args: argparse.Namespace, _shared_context: SharedContext
+    ) -> _DummyConfig:
+        self.build_called_with = args
         return _DummyConfig()
 
 
@@ -88,24 +95,28 @@ class _DummyFactory(ProbeFactory[_DummyConfig]):
     def name(self) -> str:
         return "DUMMY"
 
-    def is_available(self) -> bool:
+    def is_available(self, _shared_context: SharedContext) -> bool:
         return True
 
     def _get_config_builder(self) -> ProbeFactoryCliConfigBuilder[_DummyConfig]:
         self.builder_instance = _DummyBuilder(self)
         return self.builder_instance
 
-    def configure(self, config: _DummyConfig, **kwargs: object) -> bool:
+    def _configure(self, config: _DummyConfig, **kwargs: object) -> bool:
         self.configured_with = config
         return self.capture_flag
 
-    def create(self, capture_data: bool, base_csv_dir: Optional[str]) -> Tuple[Probe, ...]:
+    def create(self, capture_data: bool) -> Tuple[Probe, ...]:
         self.last_capture_flag = capture_data
         probe = _DummyProbe(capture_enabled=capture_data)
         return (probe,)
 
     def get_description(self) -> str:
         return "Dummy factory"
+
+
+def _shared_context() -> SharedContext:
+    return SharedContext(perf_factory=PerfFactory())
 
 
 def test_reexports_match_internal_definitions() -> None:
@@ -126,14 +137,15 @@ def test_probe_and_factory_methods_used_directly() -> None:
     factory = _DummyFactory()
     config = _DummyConfig()
 
-    capture_flag = factory.configure(config)
+    capture_flag = factory.configure(config, _shared_context())
     assert capture_flag is True
     assert factory.configured_with is config
 
-    probes = factory.create(capture_data=capture_flag, base_csv_dir=None)
+    probes = factory.create(capture_data=capture_flag)
     assert len(probes) == 1
     probe = probes[0]
     assert probe.capture_enabled is True
+    assert probe.get_mux_interval_requests() == ()
     assert probe.need_capture() is True
 
     probe.start_capture()
@@ -148,10 +160,33 @@ def test_probe_and_factory_methods_used_directly() -> None:
     assert probe.output_called is True
 
 
+def test_probe_requires_mux_interval_request_implementation() -> None:
+    class _IncompleteProbe(Probe):
+        def start_capture(self, run: int = 1, pids: Optional[Set[int]] = None) -> None:
+            pass
+
+        def stop_capture(
+            self,
+            run: int = 1,
+            pid: Optional[int] = None,
+            interrupted: bool = False,
+        ) -> None:
+            pass
+
+        def need_capture(self) -> bool:
+            return False
+
+        def output(self) -> None:
+            pass
+
+    with pytest.raises(TypeError):
+        _IncompleteProbe()
+
+
 def test_configure_respects_factory_flag() -> None:
     factory = _DummyFactory()
     factory.capture_flag = False
-    capture_flag = factory.configure(_DummyConfig())
+    capture_flag = factory.configure(_DummyConfig(), _shared_context())
     assert capture_flag is False
 
 
@@ -159,6 +194,12 @@ def test_create_propagates_capture_flag() -> None:
     factory = _DummyFactory()
     _assert_capture(factory, False)
     _assert_capture(factory, True)
+
+
+def test_shared_context_stores_mux_interval() -> None:
+    context = SharedContext(perf_factory=PerfFactory(), mux_interval_ms=7)
+
+    assert context.mux_interval_ms == 7
 
 
 def test_add_cli_arguments_delegates_to_builder() -> None:
@@ -172,15 +213,15 @@ def test_add_cli_arguments_delegates_to_builder() -> None:
 def test_configure_from_cli_arguments_uses_builder() -> None:
     factory = _DummyFactory()
     args = argparse.Namespace()
-    capture_flag = factory.configure_from_cli_arguments(args)
+    capture_flag = factory.configure_from_cli_arguments(args, _shared_context())
     assert capture_flag is True
     assert factory.configured_with is not None
     assert factory.builder_instance is not None
-    assert factory.builder_instance.process_called_with is args
+    assert factory.builder_instance.build_called_with is args
 
 
 def _assert_capture(factory: _DummyFactory, capture: bool) -> None:
-    probes = factory.create(capture_data=capture, base_csv_dir=None)
+    probes = factory.create(capture_data=capture)
     assert len(probes) == 1
     probe = probes[0]
     assert isinstance(probe, _DummyProbe)

@@ -96,7 +96,7 @@ class LinuxCommandRunner:
                 f"Command {exe} cannot be executed. Please check that the file exists in PATH and you have the necessary rights to run it."
             )
 
-        r, w = os.pipe2(os.O_CLOEXEC)
+        r, w = os.pipe2(os.O_CLOEXEC)  # type: ignore[attr-defined]  # pylint: disable=no-member
         pid = os.fork()
         if pid == 0:
             # Child process: stop immediately, then replace image with execvp

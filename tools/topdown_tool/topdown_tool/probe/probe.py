@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright 2025 Arm Limited
+# Copyright 2025-2026 Arm Limited
 
 """
 Module defining the abstract classes for telemetry capture.
 
 Classes:
+    SharedContext: Invocation-scoped shared context for probe factories.
     Probe: Abstract definition for a telemetry capture object. A Probe is
         responsible for capturing telemetry data, processing it, and outputting
         the results. A typical Probe implementation comprises:
@@ -16,22 +17,71 @@ Classes:
         - One or multiple renderers to format and output the captured data
           (for instance CSV, JSON, or CLI).
     ProbeFactory: Abstract definition for a probe factory. A ProbeFactory
-        builds probes for a specific telemetry domain and applies configuration
-        objects produced by the companion config builder.
-    ProbeFactoryCliConfigBuilder: Helper responsible for exposing CLI arguments
-        and translating parsed namespaces into configuration objects
-        understood by the associated ProbeFactory.
+        builds probes for a specific telemetry domain and applies
+        probe-specific configuration objects produced by the companion CLI
+        config builder.
+    ProbeFactoryCliConfigBuilder: Helper responsible for exposing
+        probe-specific CLI arguments and translating parsed namespaces plus
+        shared context into configuration objects understood by the associated
+        ProbeFactory.
 """
 
 import argparse
 from abc import ABC, abstractmethod
 import importlib
 import logging
-from typing import Generic, List, Optional, Sequence, Set, Tuple, TypeVar, Union
+import os
+from typing import TYPE_CHECKING, Generic, List, Optional, Sequence, Set, Tuple, TypeVar, Union
 from importlib.metadata import EntryPoint
+
+if TYPE_CHECKING:
+    from topdown_tool.perf.mux_interval import MuxIntervalRequest
+    from topdown_tool.perf.perf_factory import PerfFactory
 
 
 ConfigT = TypeVar("ConfigT")
+
+
+class SharedContext:
+    """Invocation-scoped shared context for probe factory configuration."""
+
+    # pylint: disable=too-many-arguments,too-many-positional-arguments
+    def __init__(
+        self,
+        perf_factory: "PerfFactory",
+        base_csv_dir: Optional[str] = None,
+        mux_interval_ms: Optional[int] = None,
+    ) -> None:
+        self.perf_factory = perf_factory
+        self.mux_interval_ms = mux_interval_ms
+        self._base_csv_dir = base_csv_dir
+
+    @property
+    def base_csv_dir(self) -> Optional[str]:
+        """Disallow direct access to the base CSV path after construction."""
+
+        raise AttributeError(
+            "SharedContext.base_csv_dir is internal. "
+            "Use get_or_create_base_csv_dir() or get_existing_base_csv_dir()."
+        )
+
+    def get_or_create_base_csv_dir(self) -> Optional[str]:
+        """Return the CSV root directory path, creating it on demand."""
+
+        existing = self.get_existing_base_csv_dir()
+        if existing is not None:
+            return existing
+        if self._base_csv_dir is None:
+            return None
+        os.makedirs(self._base_csv_dir, mode=0o755, exist_ok=True)
+        return self._base_csv_dir
+
+    def get_existing_base_csv_dir(self) -> Optional[str]:
+        """Return the CSV root directory path only if it already exists."""
+
+        if self._base_csv_dir is None or not os.path.isdir(self._base_csv_dir):
+            return None
+        return self._base_csv_dir
 
 
 class Probe(ABC):
@@ -95,13 +145,19 @@ class Probe(ABC):
         raise NotImplementedError("Use derived class")
 
     @abstractmethod
+    def get_mux_interval_requests(self) -> Sequence["MuxIntervalRequest"]:
+        """Return concrete sysfs mux interval requests for this probe."""
+
+        raise NotImplementedError("Use derived class")
+
+    @abstractmethod
     def output(self) -> None:
         """Render the captured telemetry data for the user."""
         raise NotImplementedError("Use derived class")
 
 
 class ProbeFactoryCliConfigBuilder(ABC, Generic[ConfigT]):
-    """Translate CLI input into factory-specific configuration objects."""
+    """Build factory-specific configuration from CLI arguments."""
 
     @abstractmethod
     def add_cli_arguments(self, parser: argparse.ArgumentParser) -> None:
@@ -113,14 +169,16 @@ class ProbeFactoryCliConfigBuilder(ABC, Generic[ConfigT]):
         """
 
     @abstractmethod
-    def process_cli_arguments(
+    def build_config_from_cli_arguments(
         self,
         args: argparse.Namespace,
+        shared_context: SharedContext,
     ) -> ConfigT:
-        """Translate parsed CLI arguments into a configuration object.
+        """Build a typed probe configuration from CLI arguments.
 
         Args:
             args (argparse.Namespace): Parsed CLI arguments to normalise.
+            shared_context (SharedContext): Invocation-scoped shared context.
 
         Returns:
             ConfigT: Probe-specific configuration object that will be consumed
@@ -156,6 +214,17 @@ class ProbeFactory(ABC, Generic[ConfigT]):
         self._cli_config_builder: ProbeFactoryCliConfigBuilder[
             ConfigT
         ] = self._get_config_builder()
+        self._shared_context: Optional[SharedContext] = None
+
+    @property
+    def shared_context(self) -> SharedContext:
+        """Return the configured shared context for this factory."""
+
+        if self._shared_context is None:
+            raise RuntimeError(
+                f"{self.__class__.__name__} must be configured before calling create()."
+            )
+        return self._shared_context
 
     @abstractmethod
     def name(self) -> str:
@@ -167,8 +236,11 @@ class ProbeFactory(ABC, Generic[ConfigT]):
         raise NotImplementedError("Use derived class")
 
     @abstractmethod
-    def is_available(self) -> bool:
+    def is_available(self, shared_context: SharedContext) -> bool:
         """Determine if the probe is available on the system.
+
+        Args:
+            shared_context (SharedContext): Invocation-scoped shared context.
 
         Returns:
             bool: True if the probe can capture telemetry data on the system;
@@ -181,39 +253,74 @@ class ProbeFactory(ABC, Generic[ConfigT]):
         """Build the CLI config builder used by this factory."""
 
     def add_cli_arguments(self, parser: argparse.ArgumentParser) -> None:
-        """Register CLI arguments for this factory via its builder."""
+        """Register CLI arguments for this factory via its config builder."""
 
         self._cli_config_builder.add_cli_arguments(parser)
 
     def configure_from_cli_arguments(
-        self, args: argparse.Namespace, **kwargs: object
+        self,
+        args: argparse.Namespace,
+        shared_context: SharedContext,
+        **kwargs: object,
     ) -> bool:
-        """Process CLI arguments and configure the factory in one step."""
+        """Process CLI arguments and configure the factory in one step.
 
-        config = self._cli_config_builder.process_cli_arguments(args)
-        return self.configure(config, **kwargs)
+        Args:
+            args (argparse.Namespace): Parsed CLI namespace.
+            shared_context (SharedContext): Invocation-scoped shared context.
+            **kwargs: Optional factory-specific parameters.
+
+        Returns:
+            bool: True if telemetry capture should proceed; False otherwise.
+        """
+
+        config = self._cli_config_builder.build_config_from_cli_arguments(
+            args, shared_context
+        )
+        return self.configure(config, shared_context, **kwargs)
 
     @abstractmethod
     def create(
         self,
         capture_data: bool,
-        base_csv_dir: Optional[str],
     ) -> Tuple["Probe", ...]:
         """Create probe instance(s) based on the CLI arguments and capture flag.
 
         Args:
             capture_data (bool): Indicates if the probe should capture
                 telemetry data.
-            base_csv_dir (Optional[str]): Base directory for CSV output, if
-                applicable.
 
         Returns:
             Tuple[Probe, ...]: A tuple of Probe instances.
         """
         raise NotImplementedError("Use derived class")
 
+    def configure(
+        self,
+        config: ConfigT,
+        shared_context: SharedContext,
+        **kwargs: object,
+    ) -> bool:
+        """Apply a pre-built configuration to the factory.
+
+        Args:
+            config (ConfigT): Object carrying probe-specific configuration
+                values.
+            shared_context (SharedContext): Invocation-scoped shared context.
+            **kwargs: Optional factory-specific parameters.
+
+        Returns:
+            bool: True if telemetry capture should proceed; False otherwise.
+        """
+        self._shared_context = shared_context
+        return self._configure(config, **kwargs)
+
     @abstractmethod
-    def configure(self, config: ConfigT, **kwargs: object) -> bool:
+    def _configure(
+        self,
+        config: ConfigT,
+        **kwargs: object,
+    ) -> bool:
         """Apply a pre-built configuration to the factory.
 
         Args:
@@ -253,8 +360,18 @@ def load_probe_factories() -> Sequence[ProbeFactory[object]]:
         Sequence[ProbeFactory]: A sequence of ProbeFactory instances.
     """
     eps = importlib.metadata.entry_points()
-    entries: Sequence[EntryPoint] = eps.select(group="topdown_tool.probe_factories")
+
+    entries: Sequence[EntryPoint]
     factory_classes: List[ProbeFactory[object]] = []
+
+    # For Python 3.10+, use the `select` method
+    if hasattr(eps, "select"):
+        entries = eps.select(group="topdown_tool.probe_factories")
+    elif hasattr(eps, "get"):
+        # For Python 3.9, entries are organized as a dict keyed by group
+        entries = eps.get("topdown_tool.probe_factories", tuple())
+    else:
+        return factory_classes
 
     for ep in entries:
         try:
@@ -274,6 +391,7 @@ def load_probe_factories() -> Sequence[ProbeFactory[object]]:
 
 
 __all__ = [
+    "SharedContext",
     "Probe",
     "ProbeFactory",
     "ProbeFactoryCliConfigBuilder",

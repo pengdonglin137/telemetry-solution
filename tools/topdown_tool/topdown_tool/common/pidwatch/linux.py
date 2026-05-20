@@ -75,7 +75,7 @@ class LinuxPidWatcher:
             raise RuntimeError("No processes to monitor.")
 
         # Spawn inotifywait with stdout piped to the parent, stdin/stderr → /dev/null
-        r, w = os.pipe2(0)  # pylint: disable=no-member
+        r, w = os.pipe2(0)  # type: ignore[attr-defined]  # pylint: disable=no-member
         try:
             self.inotify_pid = os.fork()
         except Exception:

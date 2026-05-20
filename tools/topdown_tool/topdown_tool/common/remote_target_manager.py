@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright 2025 Arm Limited
+# Copyright 2025-2026 Arm Limited
 """Shared manager for optional devlib remote targets.
 
 The configuration is managed through a singleton instance so that different
@@ -13,6 +13,11 @@ import os
 from typing import Any, Dict, Optional, Tuple
 
 from topdown_tool.common.devlib_types import Target
+from topdown_tool.common.env_utils import get_env_value
+
+TARGET_TYPE_ENV_VAR = "TOPDOWN_TOOL_TARGET_TYPE"
+TARGET_CONFIG_ENV_VAR = "TOPDOWN_TOOL_TARGET_CONFIG"
+_SUPPORTED_TARGET_TYPES = ("adb", "ssh")
 
 
 class RemoteTargetManager:
@@ -31,7 +36,7 @@ class RemoteTargetManager:
         group = parser.add_argument_group("Remote Target Options (devlib)")
         group.add_argument(
             "--target-type",
-            choices=["adb", "ssh"],
+            choices=list(_SUPPORTED_TARGET_TYPES),
             help="Connect to a remote device via devlib (Android via 'adb', Linux via 'ssh').",
         )
         group.add_argument(
@@ -47,33 +52,52 @@ class RemoteTargetManager:
             ),
         )
 
-    def configure_from_args(self, args: argparse.Namespace) -> None:
+    def configure_from_args(self, args: argparse.Namespace) -> None:  # pylint: disable=too-many-locals
         """Create or update the remote target configuration from CLI arguments."""
 
         try:
-            target_type = args.target_type
-            target_config = args.target_config
+            cli_target_type = args.target_type
+            cli_target_config = args.target_config
         except AttributeError as exc:
             raise RuntimeError(
                 "Remote target configuration arguments are unavailable; "
                 "ensure add_cli_arguments() is invoked before parsing."
             ) from exc
 
-        # TODO: allow configuring remote targets via an environment variable when
-        # CLI flags are omitted, so users do not have to repeat long JSON blobs.
+        env_target_type = get_env_value(TARGET_TYPE_ENV_VAR)
+        env_target_config = get_env_value(TARGET_CONFIG_ENV_VAR)
 
+        target_type = cli_target_type if cli_target_type else env_target_type
+        target_config = cli_target_config if cli_target_config else env_target_config
         settings = (target_type, target_config)
 
         if settings == self._current_settings:
             return
 
+        has_any = bool(target_type or target_config)
+        has_all = bool(target_type and target_config)
+        if has_any and not has_all:
+            self._clear_target()
+            raise RuntimeError(
+                "--target-type and --target-config must be provided together via "
+                "CLI arguments and/or environment variables."
+            )
+
+        if target_type and target_type not in _SUPPORTED_TARGET_TYPES:
+            supported_values = ", ".join(_SUPPORTED_TARGET_TYPES)
+            self._clear_target()
+            raise RuntimeError(
+                f"Invalid target-type {target_type!r}. Expected one of: {supported_values}."
+            )
+
         self._clear_target()
 
-        if not target_type:
+        if not has_all:
             self._current_settings = settings
             return
-        if not target_config:
-            raise RuntimeError("--target-config must be provided when using --target-type.")
+
+        assert target_type is not None
+        assert target_config is not None
 
         conn_settings = self._load_target_config(target_config)
         target = self._create_target(target_type, conn_settings)
