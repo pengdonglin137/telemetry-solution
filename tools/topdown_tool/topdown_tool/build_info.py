@@ -4,6 +4,7 @@
 """Setuptools command hooks to stamp build-time metadata into the package."""
 # pylint: disable=duplicate-code
 
+import shutil
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -12,13 +13,20 @@ from typing import Any, Optional, Type, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from setuptools.command.build_py import build_py as BuildPyBase  # type: ignore[import]
+    from setuptools.command.sdist import sdist as SdistBase  # type: ignore[import]
 else:  # pragma: no cover - runtime import handled below
     try:
         from setuptools.command import build_py as _build_py_module  # type: ignore[import]
+        from setuptools.command import sdist as _sdist_module  # type: ignore[import]
         BuildPyBase = _build_py_module.build_py  # type: ignore[assignment]
+        SdistBase = _sdist_module.sdist  # type: ignore[assignment]
     except ImportError:  # pragma: no cover - lint environments may miss setuptools
         class BuildPyBase:  # type: ignore[too-few-public-methods]
             def run(self) -> None:  # pragma: no cover - placeholder
+                raise RuntimeError("setuptools is required to build topdown_tool")
+
+        class SdistBase:  # type: ignore[too-few-public-methods]
+            def make_release_tree(self, base_dir: str, files: list[str]) -> None:
                 raise RuntimeError("setuptools is required to build topdown_tool")
 
 try:  # Setuptools 68+ exposes editable_wheel for PEP 660 editable builds
@@ -51,6 +59,49 @@ def _find_repo_root() -> Optional[Path]:
         if (candidate / ".git").exists():
             return candidate
     return None
+
+
+def _find_project_root() -> Path:
+    """Locate the topdown-tool project root from this source file."""
+
+    return Path(__file__).resolve().parents[1]
+
+
+def _find_telemetry_source_root() -> Optional[Path]:
+    """Locate retained repository telemetry data for package builds."""
+
+    project_root = _find_project_root()
+    candidates = []
+    repo_root = _find_repo_root()
+    if repo_root:
+        candidates.append(repo_root / "data" / "pmu")
+    candidates.extend(
+        [
+            project_root / "data" / "pmu",
+            project_root.parents[1] / "data" / "pmu",
+        ]
+    )
+
+    for candidate in candidates:
+        if (candidate / "cpu").is_dir() and (candidate / "cmn").is_dir():
+            return candidate
+    return None
+
+
+def _copy_retained_telemetry(build_dir: Path) -> None:
+    """Copy retained CPU and CMN telemetry data into the built package."""
+
+    source_root = _find_telemetry_source_root()
+    if source_root is None:
+        return
+
+    target_root = build_dir / "topdown_tool" / "data" / "pmu"
+    for probe in ("cpu", "cmn"):
+        source = source_root / probe
+        target = target_root / probe
+        if target.exists():
+            shutil.rmtree(target)
+        shutil.copytree(source, target)
 
 
 def _run_git(args: list[str], root: Path, check: bool = False) -> Optional[str]:
@@ -148,10 +199,29 @@ class BuildPyWithBuildInfo(BuildPyBase):
 
     def run(self) -> None:  # type: ignore[override]
         super().run()
+        _copy_retained_telemetry(Path(self.build_lib))
         version = self.distribution.get_version()
         editable = bool(getattr(self.distribution, "editable_mode", False))
         _write_build_info(Path(self.build_lib), semver=version, editable=editable)
         _write_version_file(Path(self.build_lib), semver=version, editable=editable)
+
+
+class SdistWithTelemetryData(SdistBase):
+    """sdist that includes retained repository telemetry source data."""
+
+    def make_release_tree(self, base_dir: str, files: list[str]) -> None:  # type: ignore[override]
+        super().make_release_tree(base_dir, files)
+        source_root = _find_telemetry_source_root()
+        if source_root is None:
+            return
+
+        target_root = Path(base_dir) / "data" / "pmu"
+        for probe in ("cpu", "cmn"):
+            source = source_root / probe
+            target = target_root / probe
+            if target.exists():
+                shutil.rmtree(target)
+            shutil.copytree(source, target)
 
 
 def _make_editable_wheel_hook() -> Optional[Type[Any]]:

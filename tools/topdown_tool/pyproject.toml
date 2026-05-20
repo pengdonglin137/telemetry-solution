@@ -67,10 +67,8 @@ include = ["topdown_tool*"]
 
 [tool.setuptools.package-data]
 topdown_tool = [
-  "cpu_probe/metrics/*.json",
-  "cpu_probe/schemas/*.json",
-  "cmn_probe/metrics/*.json",
-  "cmn_probe/schemas/*.json",
+  "data/pmu/cpu/**/*.json",
+  "data/pmu/cmn/**/*.json",
   "cmn_probe/cmn-tools/**/*.json",
   "cmn_probe/cmn-tools/**/*.csv",
   "cmn_probe/cmn-tools/**/*.regdefs"
@@ -78,6 +76,7 @@ topdown_tool = [
 
 [tool.setuptools.cmdclass]
 build_py = "topdown_tool.build_info.BuildPyWithBuildInfo"
+sdist = "topdown_tool.build_info.SdistWithTelemetryData"
 editable_wheel = "topdown_tool.build_info.EditableWheelWithBuildInfo"
 
 

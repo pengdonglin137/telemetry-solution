@@ -5,3 +5,4 @@ This folder contains the JSON files for the Telemetry specification for Arm IP b
 Supported Data:
 
 - PMU events, metrics and methodology for a selection of Arm CPUs that support Arm Telemetry Solution.
+- PMU events, metrics and methodology for a selection of Arm CMNs that support Arm Telemetry Solution.
