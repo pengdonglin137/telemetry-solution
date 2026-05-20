@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2025 Arm Limited
 
-from typing import List, Optional
+from typing import List, Optional, Any
 
+from rich.align import Align
 from rich.console import Console, ConsoleOptions, RenderResult
 from rich.table import Table
 
@@ -22,7 +23,7 @@ class SplitTable:
     MAX_COLUMNS = 10
 
     class Row:
-        def __init__(self, row_prefixes: List[str], row: List[str], row_suffixes: List[str]):
+        def __init__(self, row_prefixes: List[str], row: List[Any], row_suffixes: List[str]):
             self.prefixes = row_prefixes
             self.main = row
             self.suffixes = row_suffixes
@@ -39,7 +40,8 @@ class SplitTable:
         self.rows: List["SplitTable.Row"] = []
         self.max_main_columns = self.MAX_COLUMNS - len(header_prefixes) - len(header_suffixes)
 
-    def add_row(self, row_prefixes: List[str], row: List[str], row_suffixes: List[str]) -> None:
+    def add_row(self, row_prefixes: List[str], row: List[Any], row_suffixes: List[str]) -> None:
+        row = [Align.right(value) for value in row]
         self.rows.append(self.Row(row_prefixes, row, row_suffixes))
 
     def __rich_console__(self, _console: Console, _options: ConsoleOptions) -> RenderResult:
