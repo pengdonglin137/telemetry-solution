@@ -16,6 +16,7 @@ stages:
   - docker-check
   - prepare
   - build-and-test
+  - release
 
 ###
 # Prepare: Docker build
@@ -138,6 +139,10 @@ check-docker-change:
           --registry-mirror mirrors--dockerhub.${ARTIFACTORY_HOST} \
           --context "${CI_PROJECT_DIR}" \
           --dockerfile "${CI_PROJECT_DIR}/.ci/Dockerfile" \
+          ${CI_IMAGE_DOCKER_BASE:+--build-arg DOCKER_BASE=${CI_IMAGE_DOCKER_BASE}} \
+          ${CI_IMAGE_APT_PORTS_MIRROR_URL:+--build-arg APT_PORTS_MIRROR_URL=${CI_IMAGE_APT_PORTS_MIRROR_URL}} \
+          ${CI_IMAGE_APT_ARCHIVE_MIRROR_URL:+--build-arg APT_ARCHIVE_MIRROR_URL=${CI_IMAGE_APT_ARCHIVE_MIRROR_URL}} \
+          ${CI_IMAGE_APT_SECURITY_MIRROR_URL:+--build-arg APT_SECURITY_MIRROR_URL=${CI_IMAGE_APT_SECURITY_MIRROR_URL}} \
           --destination "${REGISTRY_IMAGE}"
       fi
 
@@ -162,7 +167,7 @@ build-ustress:
   extends: .build-base
   parallel:
     matrix:
-      - UARCH: [V1, N1, N2]
+      - UARCH: [V1, V3, N1, N2]
         COMPILER: [aarch64-linux-gnu-gcc-10,aarch64-linux-gnu-gcc-13]
         USE_C_FLAG: [0, 1]
   script:
@@ -285,7 +290,7 @@ topdown-tool-blackduck:
       BASELINE_VERSION=$(cat .ci/blackduck-baseline-version)
       cd tools/topdown_tool
       python -m pip install .
-      CURRENT_VERSION="${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME:-$CI_COMMIT_REF_NAME}"
+      CURRENT_VERSION=$(python -m pip show topdown-tool | grep Version | awk '{print $2}')-$CI_COMMIT_SHORT_SHA
       ../../.ci/blackduck-scan.sh $BASELINE_VERSION $CURRENT_VERSION $BLACKDUCK_TOPDOWN_TOOL_PROJECT_ID $BLACKDUCK_TOPDOWN_TOOL_PROJECT_NAME './topdown_tool,./tests'
 
 validate-cpu-specs:
@@ -295,7 +300,7 @@ validate-cpu-specs:
       python3 -m venv .venv
       source .venv/bin/activate
       python -m pip install tools/topdown_tool
-      validate-cpu-spec --spec-dir data/pmu/cpu --schema-dir data/schema/cpu
+      validate-cpu-spec --spec-dir data/pmu/cpu/metrics --schema-dir data/pmu/cpu/schemas
 
 perf-json-generator:
   extends: .build-base
@@ -312,7 +317,7 @@ perf-json-generator:
       pushd linux
       git sparse-checkout add tools/perf
       popd
-      find $WORKSPACE/data/* -name '*.json' | grep -Ev 'schema|-sme2-|cmn' | xargs -I '{}' ./generate.py linux/tools/perf --telemetry-files '{}'
+      find $WORKSPACE/data/pmu/cpu/metrics/* -name '*.json' | grep -Ev 'schema|-sme2-' | xargs -I '{}' ./generate.py linux/tools/perf --telemetry-files '{}'
       pushd linux
       git diff --name-only > changed_files.txt
       git ls-files --others --exclude-standard >> changed_files.txt
@@ -337,6 +342,8 @@ topdown-tool-create-package:
   image: python:3.10.18-bullseye
   tags: [linux_arm64]
   when: manual
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
   script:
     - |
       apt update
@@ -346,7 +353,57 @@ topdown-tool-create-package:
       pip install pyinstaller
       cd tools/topdown_tool
       pip install .
-      pyinstaller --clean -Fsn topdown-tool --optimize 2 --bootloader-ignore-signals --copy-metadata topdown_tool --hidden-import topdown_tool.cpu_probe.cpu_factory --add-data topdown_tool/cpu_probe/metrics:topdown_tool/cpu_probe/metrics --add-data topdown_tool/cpu_probe/schemas:topdown_tool/cpu_probe/schemas topdown_tool/__main__.py
+      pyinstaller --clean -Fsn topdown-tool --optimize 2 --bootloader-ignore-signals --copy-metadata topdown_tool \
+        --hidden-import topdown_tool.cmn_probe.cmn_factory \
+        --hidden-import topdown_tool.cpu_probe.cpu_factory \
+        --add-data ../../data/pmu/cpu:topdown_tool/data/pmu/cpu \
+        --add-data ../../data/pmu/cmn:topdown_tool/data/pmu/cmn \
+        --add-data topdown_tool/cmn_probe/cmn-tools/:topdown_tool/cmn_probe/cmn-tools/ \
+        topdown_tool/__main__.py
   artifacts:
     paths:
       - tools/topdown_tool/dist/topdown-tool
+
+topdown-tool-release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  tags: [linux_x86_64]
+  needs:
+    - job: topdown-tool-create-package
+      artifacts: true
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: manual
+    - when: never
+  script:
+    - |
+      PACKAGE_NAME="topdown-tool-${CI_COMMIT_TAG}-linux_arm64.tar.gz"
+      BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      mkdir -p release
+      cp tools/topdown_tool/dist/topdown-tool release/topdown-tool
+      cp tools/topdown_tool/README*.md release/
+      cat > release/VERSION.txt <<EOF
+      tag=${CI_COMMIT_TAG}
+      ref=${CI_COMMIT_REF_NAME}
+      commit=${CI_COMMIT_SHA}
+      build_date=${BUILD_DATE}
+      pipeline=${CI_PIPELINE_URL}
+      EOF
+      (
+        cd release
+        tar -czf "${PACKAGE_NAME}" topdown-tool README*.md VERSION.txt
+      )
+  artifacts:
+    paths:
+      - release/*.tar.gz
+      - release/VERSION.txt
+      - release/README*.md
+    expire_in: never
+  release:
+    tag_name: $CI_COMMIT_TAG
+    name: "topdown-tool binary release $CI_COMMIT_TAG"
+    description: "On-demand binary release generated from the package built in this tag pipeline."
+    assets:
+      links:
+        - name: "topdown-tool-${CI_COMMIT_TAG}-linux_arm64"
+          url: "${CI_PROJECT_URL}/-/jobs/${CI_JOB_ID}/artifacts/raw/release/topdown-tool-${CI_COMMIT_TAG}-linux_arm64.tar.gz"

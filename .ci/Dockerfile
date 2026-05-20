@@ -2,12 +2,27 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2024 Arm Limited
 
-FROM ubuntu:noble
+ARG DOCKER_BASE=ubuntu:noble
+FROM ${DOCKER_BASE}
+
+ARG APT_PORTS_MIRROR_URL
+ARG APT_ARCHIVE_MIRROR_URL
+ARG APT_SECURITY_MIRROR_URL
 
 ENV DEBIAN_FRONTEND=noninteractive 
 
 RUN set -ex; \
     export DEBIAN_FRONTEND=noninteractive; \
+    APT_SOURCES_FILES="/etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources"; \
+    [ -z "${APT_PORTS_MIRROR_URL}" ] || sed -E -i \
+      -e "s|https?://ports\\.ubuntu\\.com/ubuntu-ports|${APT_PORTS_MIRROR_URL}|g" \
+      $APT_SOURCES_FILES 2>/dev/null || true; \
+    [ -z "${APT_ARCHIVE_MIRROR_URL}" ] || sed -E -i \
+      -e "s|https?://archive\\.ubuntu\\.com/ubuntu|${APT_ARCHIVE_MIRROR_URL}|g" \
+      $APT_SOURCES_FILES 2>/dev/null || true; \
+    [ -z "${APT_SECURITY_MIRROR_URL}" ] || sed -E -i \
+      -e "s|https?://security\\.ubuntu\\.com/ubuntu|${APT_SECURITY_MIRROR_URL}|g" \
+      $APT_SOURCES_FILES 2>/dev/null || true; \
     apt-get update; \
     apt-get -y install software-properties-common; \
     add-apt-repository -y ppa:deadsnakes/ppa; \

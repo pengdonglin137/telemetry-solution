@@ -3,6 +3,10 @@ TdT-cmn
 TdT-common
 TdT-cpu
 TdT-doc
+TdT-output
+TdT-perf
+TdT-remote-target
+TdT-workload
 TdT-test
 CI
 Doc-readme
