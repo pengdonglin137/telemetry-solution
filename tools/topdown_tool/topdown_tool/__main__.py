@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-# Copyright 2022-2025 Arm Limited
+# Copyright 2022-2026 Arm Limited
 
 import sys
 import os
@@ -28,8 +28,10 @@ from rich.console import Console
 from rich.pretty import Pretty
 from rich.table import Table
 from topdown_tool.probe.probe import load_probe_factories
-from topdown_tool.perf import perf_factory
-from topdown_tool.probe import Probe, ProbeFactory
+from topdown_tool.perf import PerfFactory
+from topdown_tool.perf.mux_interval import mux_interval_session, parse_mux_interval
+from topdown_tool.probe import Probe, ProbeFactory, SharedContext
+from topdown_tool.probe.cli_options import add_global_csv_output_option
 from topdown_tool.workload import CommandWorkload, PidWorkload, SystemwideWorkload
 from topdown_tool.common import ArgsError, remote_target_manager
 from topdown_tool.common.devlib_types import Target
@@ -126,7 +128,7 @@ class SmartFormatter(argparse.RawDescriptionHelpFormatter):
         return super()._split_lines(text, width)
 
 
-def create_base_arg_parser() -> argparse.ArgumentParser:
+def create_base_arg_parser(perf_factory: PerfFactory) -> argparse.ArgumentParser:
     """
     Build the application argument parser with perf arguments.
 
@@ -194,6 +196,16 @@ def extend_arg_parser(
         help="List available probes on this system.",
     )
     parser.add_argument(
+        "--mux-interval",
+        type=parse_mux_interval,
+        default=None,
+        metavar="MS",
+        help=(
+            "Default perf event mux interval in milliseconds for probes without "
+            "their own interval."
+        ),
+    )
+    parser.add_argument(
         "command",
         default=[],
         nargs=argparse.REMAINDER,
@@ -227,14 +239,35 @@ def extend_arg_parser(
     )
     output_group.add_argument(
         "--csv-output-path",
-        help="Directory for CSV output. Required when using --cpu-generate-csv (metrics and/or events). A timestamped subdirectory is created automatically.",
+        help=(
+            "Directory for CSV output (default: 'tdt_out'). "
+            "A timestamped subdirectory is created automatically when CSV generation is enabled."
+        ),
     )
+    add_global_csv_output_option(output_group)
 
     # Add Probe specific options for selected probes only
     for probe_factory in selected_factories:
         probe_factory.add_cli_arguments(parser)
 
     return parser
+
+
+def build_shared_context(
+    args: argparse.Namespace,
+    topdown_tool_start_time: datetime,
+    perf_factory: PerfFactory,
+) -> SharedContext:
+    """Build the shared context for the current invocation."""
+
+    base_csv_dir = os.path.join(
+        args.csv_output_path, topdown_tool_start_time.strftime("%Y_%m_%d_%H_%M_%S")
+    )
+    return SharedContext(
+        perf_factory=perf_factory,
+        base_csv_dir=base_csv_dir,
+        mux_interval_ms=args.mux_interval,
+    )
 
 
 def parse_log_level(value: str) -> int:
@@ -418,6 +451,21 @@ def capture_pid_workload(probes: List[Probe], pids: Set[int], target: Optional["
                         )
 
 
+def capture_workload(
+    probes: List[Probe],
+    args: argparse.Namespace,
+    remote_target: Optional["Target"],
+) -> None:
+    """Run the requested capture workload."""
+
+    if args.command:
+        capture_command_workload(probes, args.command, remote_target)
+    elif args.pids:
+        capture_pid_workload(probes, args.pids, remote_target)
+    else:
+        capture_systemwide_workload(probes, remote_target)
+
+
 # pylint: disable=too-many-branches, too-many-statements, too-many-locals
 def main(
     _args: Optional[Sequence[str]] = None,
@@ -425,9 +473,10 @@ def main(
     topdown_tool_start_time = datetime.now()
 
     console = get_console()
+    perf_factory = PerfFactory()
 
     # Build parser with only perf initially
-    parser = create_base_arg_parser()
+    parser = create_base_arg_parser(perf_factory)
 
     # Parse known args (so we can identify selected probes before extending the parser)
     args, _ = parser.parse_known_args(_args)
@@ -442,9 +491,14 @@ def main(
     # Remote targets need to be configured before privilege checks run.
     remote_target_manager.configure_from_args(args)
     perf_factory.configure_from_cli_arguments(args)
+    early_shared_context = SharedContext(perf_factory=perf_factory)
 
     # Get available probe types on the system
-    available_factories = tuple(pt for pt in PROBE_FACTORY if args.help_requested or pt.is_available())
+    available_factories = tuple(
+        pt
+        for pt in PROBE_FACTORY
+        if args.help_requested or pt.is_available(early_shared_context)
+    )
 
     # Early handling of --probe-list (allow listing without perf privileges)
     list_parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
@@ -479,6 +533,8 @@ def main(
     # Normalize command separator: drop leading '--' if provided
     if args.command and len(args.command) > 0 and args.command[0] == "--":
         args.command = args.command[1:]
+    if not args.csv_output_path:
+        args.csv_output_path = "tdt_out"
 
     logging.basicConfig(format=LOG_FORMAT, level=args.loglevel)
 
@@ -497,8 +553,6 @@ def main(
 
     # Variable to check if we proceed with real capture
     capture_data = True
-
-    # Handle Probes global arguments
 
     factory = None
 
@@ -520,11 +574,16 @@ def main(
             console.print_exception()
         sys.exit(1)
 
-    # FIXME: Split between printing static information and creating instances
     try:
+        shared_context = build_shared_context(
+            args,
+            topdown_tool_start_time,
+            perf_factory,
+        )
+
         for factory in selected_factories:
             # Probes detect if user wants to just query information, like listing metrics
-            capture_flag = factory.configure_from_cli_arguments(args)
+            capture_flag = factory.configure_from_cli_arguments(args, shared_context)
             capture_data &= capture_flag
     except (FileNotFoundError, PermissionError, ValueError, ArgsError) as e:
         handle_exception(
@@ -534,17 +593,6 @@ def main(
         handle_exception(
             exception=e, log_warning_str=get_warning_text(factory), print_additional_error_str=True
         )
-
-    # Create directory for CSV output if needed
-    base_csv_dir: Optional[str] = None
-    if args.csv_output_path is not None:
-        base_csv_dir = os.path.join(
-            args.csv_output_path, topdown_tool_start_time.strftime("%Y_%m_%d_%H_%M_%S")
-        )
-        try:
-            os.makedirs(base_csv_dir, 0o755, True)
-        except Exception:  # pylint: disable=broad-exception-caught
-            console.print(f"Failed to create base CSV path {base_csv_dir}")
 
     # Create probes for capture or querying information
     probes: List[Probe] = []
@@ -563,22 +611,26 @@ def main(
     # Capture data depending on requested type
     try:
         remote_target = remote_target_manager.get_remote_target()
-        if args.command:
-            capture_command_workload(probes, args.command, remote_target)
-        elif args.pids:
-            capture_pid_workload(probes, args.pids, remote_target)
-        else:
-            capture_systemwide_workload(probes, remote_target)
     except (InterruptedError,) as e:
         console.print(e)
+        return
     except OSError as e:
         handle_exception(exception=e, log_warning_str="", print_additional_error_str=False)
     except Exception as e:  # pylint: disable=broad-exception-caught
         handle_exception(exception=e, log_warning_str="", print_additional_error_str=True)
 
-    # Print result for each probe
-    for probe in probes:
-        probe.output()
+    with mux_interval_session(probes, target=remote_target, console=console):
+        try:
+            capture_workload(probes, args, remote_target)
+        except (InterruptedError,) as e:
+            console.print(e)
+        except OSError as e:
+            handle_exception(exception=e, log_warning_str="", print_additional_error_str=False)
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            handle_exception(exception=e, log_warning_str="", print_additional_error_str=True)
+
+        for probe in probes:
+            probe.output()
 
 
 if __name__ == "__main__":

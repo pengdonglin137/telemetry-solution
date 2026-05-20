@@ -8,10 +8,8 @@ import logging
 import shlex
 from abc import ABC
 from pathlib import Path
-from sys import platform
+from resource import getrlimit, RLIMIT_NOFILE
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
-if platform == "linux":
-    from resource import getrlimit, RLIMIT_NOFILE
 
 from topdown_tool.perf.perf import (
     Cpu,

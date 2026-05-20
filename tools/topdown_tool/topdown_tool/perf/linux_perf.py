@@ -80,8 +80,8 @@ class LinuxPerf(LinuxPerfBase):
             # Create control and acknowledgement pipes
             # The control pipe will be used to enable events,
             # while the acknowledgement pipe will be used to resume Arm Top-Down tool.
-            self._ctl_pipe: Optional[Tuple[int, int]] = os.pipe2(0)
-            self._ack_pipe: Optional[Tuple[int, int]] = os.pipe2(0)
+            self._ctl_pipe: Optional[Tuple[int, int]] = os.pipe2(0)  # type: ignore[attr-defined]  # pylint: disable=no-member
+            self._ack_pipe: Optional[Tuple[int, int]] = os.pipe2(0)  # type: ignore[attr-defined]  # pylint: disable=no-member
             os.set_blocking(self._ack_pipe[0], False)
 
             cmd.extend(
@@ -108,8 +108,8 @@ class LinuxPerf(LinuxPerfBase):
                 and self._ack_pipe is None
             )
             if self._ctl_pipe is None or self._ack_pipe is None:
-                self._ctl_pipe = os.pipe2(0)
-                self._ack_pipe = os.pipe2(0)
+                self._ctl_pipe = os.pipe2(0)  # type: ignore[attr-defined]  # pylint: disable=no-member
+                self._ack_pipe = os.pipe2(0)  # type: ignore[attr-defined]  # pylint: disable=no-member
                 self._command[self._control_index] = f"fd:{self._ctl_pipe[0]},{self._ack_pipe[1]}"
 
             # pylint: disable=protected-access
@@ -135,7 +135,7 @@ class LinuxPerf(LinuxPerfBase):
                 raise RuntimeError("Perf version not supported. Control pipe closed by perf.")
 
             # Wait for acknowledgement from perf to ensure events are ready.
-            readable_fds, _, _ = select((self._ack_pipe[0],), (), (), 2.0)
+            readable_fds, _, _ = select((self._ack_pipe[0],), (), (), 10.0)
             if self._ack_pipe[0] not in readable_fds:
                 os.close(self._ack_pipe[0])
                 raise RuntimeError("Perf version not supported. Perf didn't acknowledge.")
