@@ -31,7 +31,7 @@ from topdown_tool.probe.probe import load_probe_factories
 from topdown_tool.perf import perf_factory
 from topdown_tool.probe import Probe, ProbeFactory
 from topdown_tool.workload import CommandWorkload, PidWorkload, SystemwideWorkload
-from topdown_tool.common import remote_target_manager
+from topdown_tool.common import ArgsError, remote_target_manager
 from topdown_tool.common.devlib_types import Target
 from topdown_tool.version import as_dict as version_as_dict, get_build_info
 
@@ -526,7 +526,7 @@ def main(
             # Probes detect if user wants to just query information, like listing metrics
             capture_flag = factory.configure_from_cli_arguments(args)
             capture_data &= capture_flag
-    except (FileNotFoundError, PermissionError, ValueError) as e:
+    except (FileNotFoundError, PermissionError, ValueError, ArgsError) as e:
         handle_exception(
             exception=e, log_warning_str=get_warning_text(factory), print_additional_error_str=False
         )
@@ -551,6 +551,10 @@ def main(
     try:
         for factory in selected_factories:
             probes.extend(factory.create(capture_data, base_csv_dir))
+    except ArgsError as e:
+        handle_exception(
+            exception=e, log_warning_str=get_warning_text(factory), print_additional_error_str=False
+        )
     except Exception as e:  # pylint: disable=broad-exception-caught
         handle_exception(
             exception=e, log_warning_str=get_warning_text(factory), print_additional_error_str=True
