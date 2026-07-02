@@ -33,7 +33,7 @@ classifiers = [
   "Operating System :: POSIX :: Linux",
   "Programming Language :: Python :: 3"
 ]
-dependencies = ["rich==14.1.0", "pydantic==2.11.7", "jsonschema==4.25.1"]
+dependencies = ["rich==14.1.0", "pydantic==2.13.4", "jsonschema==4.25.1"]
 
 [project.optional-dependencies]
 test = [
