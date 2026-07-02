@@ -18,7 +18,6 @@ from topdown_tool.perf.mux_interval import (
 from topdown_tool.perf.event_scheduler import CollectBy, EventScheduler
 from topdown_tool.perf import Cpu, PerfFactory, Uncore
 from topdown_tool.cpu_probe.cpu_telemetry_database import Event, TelemetryDatabase
-from topdown_tool.cpu_probe.common import COMBINED_STAGES
 from topdown_tool.common.metric_core import compute_metric_value
 
 
@@ -1334,7 +1333,8 @@ def test_output_render_routes(dummy_probe, use_combined, use_node):
     dummy_probe._conf.cpu_list_metrics = False
     dummy_probe._conf.cpu_list_groups = False
     dummy_probe._conf.cpu_dump_events = None
-    dummy_probe._conf.stages = COMBINED_STAGES if use_combined else [1, 2]
+    dummy_probe._conf.stages = [1, 2]
+    dummy_probe._conf.combined_stages = use_combined
     dummy_probe._conf.node = "frontend_stalled_cycles" if use_node else None
 
     dummy_probe._cli_renderer.render_metrics_tree.reset_mock()
@@ -1349,13 +1349,13 @@ def test_output_render_routes(dummy_probe, use_combined, use_node):
         dummy_probe._cli_renderer.render_metrics_tree.assert_not_called()
 
 
-def test_output_render_routes_combined_with_copied_stages_list(dummy_probe):
+def test_output_render_routes_copied_combined_stage_config(dummy_probe):
     dummy_probe._conf.cpu_list_events = False
     dummy_probe._conf.cpu_list_metrics = False
     dummy_probe._conf.cpu_list_groups = False
     dummy_probe._conf.cpu_dump_events = None
-    # Simulates CLI config path where combined sentinel is copied into a new list object.
-    dummy_probe._conf.stages = list(COMBINED_STAGES)
+    dummy_probe._conf.stages = [1, 2]
+    dummy_probe._conf.combined_stages = True
     dummy_probe._conf.node = None
 
     dummy_probe._cli_renderer.render_metrics_tree.reset_mock()

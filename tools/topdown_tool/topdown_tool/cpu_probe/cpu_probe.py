@@ -35,7 +35,6 @@ from topdown_tool.common.close_match import (
 )
 from topdown_tool.common.metric_core import compute_metric_value
 from topdown_tool.cpu_probe.common import (
-    COMBINED_STAGES,
     DEFAULT_ALL_STAGES,
     CpuAggregate,
     CpuProbeConfiguration,
@@ -300,7 +299,7 @@ class CpuProbe(Base.Probe):
                 else:
                     capture_groups.append(group)
         else:  # We are looking at the stages
-            if conf.stages in (DEFAULT_ALL_STAGES, COMBINED_STAGES):
+            if conf.stages == DEFAULT_ALL_STAGES:
                 capture_groups = list(db.topdown.stage_1_groups + db.topdown.stage_2_groups)
             else:
                 if 1 in conf.stages:
@@ -574,7 +573,7 @@ class CpuProbe(Base.Probe):
         )
         if self._conf.cpu_generate_csv and has_timeline:
             return
-        if self._conf.stages == COMBINED_STAGES or self._conf.node is not None:
+        if self._conf.combined_stages or self._conf.node is not None:
             self._cli_renderer.render_metrics_tree(
                 self.computed_metrics,
                 self._conf.descriptions,

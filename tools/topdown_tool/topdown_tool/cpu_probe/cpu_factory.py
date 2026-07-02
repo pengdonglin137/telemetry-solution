@@ -47,7 +47,6 @@ from topdown_tool.common.telemetry_paths import (
     telemetry_probe_schemas_dir,
 )
 from topdown_tool.cpu_probe.common import (
-    COMBINED_STAGES,
     DEFAULT_ALL_STAGES,
     CpuModifier,
     CpuProbeConfiguration,
@@ -83,8 +82,10 @@ class _ProcessStageArgs(argparse.Action):
         if isinstance(values, str):
             if values.lower() == "all":
                 value = DEFAULT_ALL_STAGES
+                combined_stages = False
             elif values.lower() == "combined":
-                value = COMBINED_STAGES
+                value = DEFAULT_ALL_STAGES
+                combined_stages = True
             else:
                 try:
                     value = sorted(
@@ -93,10 +94,12 @@ class _ProcessStageArgs(argparse.Action):
                             for x in values.split(",")
                         )
                     )
+                    combined_stages = False
                 except KeyError as e:
                     parser.error(f'"{e.args[0]}" is not a valid stage name.')
         else:
             assert False
+        setattr(namespace, "cpu_combined_stages", combined_stages)
         setattr(namespace, self.dest, value)
 
 
@@ -303,6 +306,7 @@ class CpuProbeFactoryCliConfigBuilder(
             core_filter = list(core_filter)
         metric_groups = getattr(args, "cpu_metric_group", None) or []
         stages = getattr(args, "cpu_stages", None)
+        combined_stages = getattr(args, "cpu_combined_stages", False)
         stages_list = list(stages) if stages is not None else list(DEFAULT_ALL_STAGES)
         events_modifiers_str: Optional[List[str]] = getattr(args, "cpu_events_modifiers", None)
         events_modifiers: Optional[List[CpuModifier]] = None
@@ -328,6 +332,7 @@ class CpuProbeFactoryCliConfigBuilder(
             node=getattr(args, "cpu_node", None),
             level=getattr(args, "cpu_level", None),
             stages=stages_list,
+            combined_stages=combined_stages,
             events_modifiers=tuple(events_modifiers) if events_modifiers is not None else None,
             descriptions=getattr(args, "cpu_descriptions", False),
             show_sample_events=getattr(args, "cpu_show_sample_events", False),

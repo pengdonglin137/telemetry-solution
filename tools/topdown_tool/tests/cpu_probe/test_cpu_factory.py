@@ -184,6 +184,18 @@ def base_args():
     return ns
 
 
+def test_config_from_namespace_preserves_combined_stage_mode():
+    parser = argparse.ArgumentParser()
+    CpuProbeFactory().add_cli_arguments(parser)
+
+    args = parser.parse_args(["--cpu-stages", "combined"])
+    config = CpuProbeFactoryCliConfigBuilder.config_from_namespace(args)
+
+    assert args.cpu_stages == DEFAULT_ALL_STAGES
+    assert config.runtime.stages == DEFAULT_ALL_STAGES
+    assert config.runtime.combined_stages is True
+
+
 # NEW: Generator function for fake Telemetry Specification JSONs.
 def generate_fake_spec(
     product_name="default",

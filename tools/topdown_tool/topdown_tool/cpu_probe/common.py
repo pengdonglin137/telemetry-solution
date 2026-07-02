@@ -10,9 +10,8 @@ from topdown_tool.perf import Cpu, PerfRecordLocation
 
 UNIT_REMAPPINGS = {"MPKI": "misses per 1,000 instructions"}
 
-# Default stages, unless levels or metric groups are specified
+# Default stages, unless levels or metric groups are specified.
 DEFAULT_ALL_STAGES = [1, 2]
-COMBINED_STAGES: List[int] = []
 
 
 class CpuModifier(Enum):
@@ -56,6 +55,7 @@ class CpuProbeConfiguration:
     node: Optional[str] = None
     level: Optional[int] = None
     stages: List[int] = field(default_factory=DEFAULT_ALL_STAGES.copy)
+    combined_stages: bool = False
     events_modifiers: Optional[Tuple[CpuModifier, ...]] = None
     descriptions: bool = False
     show_sample_events: bool = False
