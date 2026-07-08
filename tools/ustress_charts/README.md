@@ -4,18 +4,32 @@
 
 ## Getting started
 
-`ustress-charts.py` uses [uv](https://docs.astral.sh/uv/). Run commands with
-`uv run --locked` to install and execute the Python dependencies declared in
-`pyproject.toml` and resolved in `uv.lock`. The locked environment also includes the sibling `topdown-tool`
-project, so run commands through uv rather than relying on a globally installed
-`topdown-tool`.
+`ustress-charts.py` uses [uv](https://docs.astral.sh/uv/) for its plotting
+dependencies. From the repository root, initialize the tool data submodule and
+install Top-Down once as a persistent uv tool so the script can find the
+`topdown-tool` executable on your `PATH`:
+
+```sh
+git submodule update --init --recursive
+uv run --no-project ./tools/topdown_tool/scripts/install_topdown_tool.py
+topdown-tool --help
+```
+
+The installer validates Top-Down's `uv.lock` before creating the persistent
+tool, so its runtime package versions and Git commit SHAs match the lockfile.
+Plain `uv tool install ./tools/topdown_tool` re-resolves dependencies and is
+not lock-enforced; rerun the installer after updating the checkout.
+
+Then run the chart script from its directory:
 
 ```sh
 cd tools/ustress_charts
-
-uv run --locked topdown-tool --help
 uv run --locked ./ustress-charts.py --help
 ```
+
+Repository developers can run `uv sync --locked` in this directory to create
+the local environment for the chart script's plotting dependencies. This does
+not install Top-Down tool; use the locked persistent installation above.
 
 To generate your first charts using `ustress-charts.py`, ensure that:
 

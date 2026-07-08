@@ -46,7 +46,12 @@ LOG_FORMAT = "%(asctime)s [%(levelname)s] %(module)s:%(funcName)s - %(message)s"
 try:
     PROBE_FACTORY = load_probe_factories()
 except Exception:  # pylint: disable=broad-exception-caught
-    print("Failed to load probe entry points. Please install topdown_tool with pip")
+    print(
+        "Failed to load probe entry points. "
+        "Reinstall with 'uv run --no-project scripts/install_topdown_tool.py' from "
+        "tools/topdown_tool. For a checkout development environment, run "
+        "'uv sync --locked' and try again."
+    )
     sys.exit(1)
 
 

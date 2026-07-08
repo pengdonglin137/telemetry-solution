@@ -211,8 +211,13 @@ ustress-charts:
   extends: .build-base
   script:
     - |
-      cd tools/ustress_charts
+      git submodule update --init --recursive
+      cd tools/topdown_tool
+      UV_TOOL_DIR="$CI_PROJECT_DIR/.uv-tools" UV_TOOL_BIN_DIR="$CI_PROJECT_DIR/.uv-bin" python3 scripts/install_topdown_tool.py
+      export PATH="$CI_PROJECT_DIR/.uv-bin:$PATH"
+      cd ../ustress_charts
       uv lock --check
+      topdown-tool --help
       uv run --locked ./ustress-charts.py --help
 
 build-sysstress:
@@ -293,7 +298,7 @@ topdown-tool:
         - mypy
   script:
     - |
-      uv run --directory tools/topdown_tool --no-project --with tox tox -e "$PYENV"
+      uv run --directory tools/topdown_tool --locked --group tox tox -e "$PYENV"
   artifacts:
     reports:
       junit:
@@ -313,14 +318,14 @@ topdown-tool-blackduck:
     - |
       BASELINE_VERSION=$(cat .ci/blackduck-baseline-version)
       cd tools/topdown_tool
-      CURRENT_VERSION=$(uv run python -c 'from importlib.metadata import version; print(version("topdown-tool"))')-$CI_COMMIT_SHORT_SHA
+      CURRENT_VERSION=$(uv run --locked python -c 'from importlib.metadata import version; print(version("topdown-tool"))')-$CI_COMMIT_SHORT_SHA
       ../../.ci/blackduck-scan.sh $BASELINE_VERSION $CURRENT_VERSION $BLACKDUCK_TOPDOWN_TOOL_PROJECT_ID $BLACKDUCK_TOPDOWN_TOOL_PROJECT_NAME './topdown_tool,./tests'
 
 validate-cpu-specs:
   extends: .build-base
   script:
     - |
-      uv run --directory tools/topdown_tool validate-cpu-spec --spec-dir ../../data/pmu/cpu/specifications --schema-dir ../../data/pmu/cpu/schemas
+      uv run --directory tools/topdown_tool --locked validate-cpu-spec --spec-dir ../../data/pmu/cpu/specifications --schema-dir ../../data/pmu/cpu/schemas
 
 perf-json-generator:
   extends: .build-base
@@ -366,7 +371,7 @@ topdown-tool-create-package:
       apt install -y binutils curl
       curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL=/usr/local/bin sh
       cd tools/topdown_tool
-      uv run --with pyinstaller pyinstaller --clean -Fsn topdown-tool --optimize 2 --bootloader-ignore-signals --copy-metadata topdown_tool \
+      uv run --locked --group package pyinstaller --clean -Fsn topdown-tool --optimize 2 --bootloader-ignore-signals --copy-metadata topdown_tool \
         --hidden-import topdown_tool.cmn_probe.cmn_factory \
         --hidden-import topdown_tool.cpu_probe.cpu_factory \
         --add-data ../../data/pmu/cpu:topdown_tool/data/pmu/cpu \

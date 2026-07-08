@@ -38,7 +38,6 @@ dependencies = ["rich==14.1.0", "pydantic==2.13.4", "jsonschema==4.25.1"]
 [project.optional-dependencies]
 test = [
   "pytest==8.4.1",
-  "tox==4.28.4",
   "pytest-mock==3.14.1"
 ]
 lint = [
@@ -48,6 +47,32 @@ lint = [
 ]
 remote = [
   "devlib @ git+https://gitlab.arm.com/tooling/workload-automation/devlib.git"
+]
+
+[dependency-groups]
+lint = [
+  "flake8==7.3.0",
+  "jsonschema==4.25.1",
+  "pre-commit>=2.21",
+  "pydantic==2.13.4",
+  "pylint==3.3.7",
+  "rich==14.1.0",
+]
+package = [
+  "pyinstaller",
+]
+pkg-meta = [
+  "build[virtualenv]>=0.9",
+  "check-wheel-contents>=0.4",
+  "twine>=4.0.2",
+]
+tox = [
+  "tox>=4.28.4",
+  "tox-uv>=1.35.2",
+]
+type = [
+  "mypy==1.17.1",
+  "types-jsonschema",
 ]
 
 [project.urls]
@@ -82,11 +107,18 @@ editable_wheel = "topdown_tool.build_info.EditableWheelWithBuildInfo"
 
 [tool.mypy]
 python_version = "3.10"
-exclude = ["^\\.venv/.*", "^venv", "pmu_discovery", "^tests/", "^topdown_tool/cmn_probe/cmn-tools/"]
+exclude = [
+  "^\\.venv/.*",
+  "^venv",
+  "pmu_discovery",
+  "^tests/",
+  "^topdown_tool/cmn_probe/cmn-tools/.*",
+]
 check_untyped_defs = true
 disallow_untyped_defs = true
 
 [tool.pylint]
+ignore = ["_build_info.py", "_version.py"]
 good-names = ["e", "f", "g", "m", "l1", "l2", "mi", "op"]
 generated-member = ["argparse._ArgumentGroup.add_linux_argument"]
 disable = [

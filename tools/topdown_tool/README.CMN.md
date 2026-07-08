@@ -6,6 +6,8 @@ This guide focuses on CMN-specific workflows. For installation details, permissi
 topdown-tool --probe CMN --help
 ```
 
+These examples assume the normal locked persistent installation described in the main README. Contributors running from a checkout should sync first, then prefix commands with `uv run --locked` (or use an equivalent repository run command).
+
 ## What the CMN probe does
 
 The CMN probe collects PMU-based metrics according to Arm’s Top-down CMN performance analysis or user chosen metrics/groups defined in a CMN telemetry specification (JSON). It can:
@@ -70,6 +72,12 @@ Generate a layout once as root:
 
 ```sh
 sudo "$(command -v topdown-tool)" --probe CMN --cmn-mesh-layout-output cmn_mesh.json --cmn-list
+```
+
+For contributors running from a synced repository checkout instead:
+
+```sh
+sudo "$(uv run --locked which topdown-tool)" --probe CMN --cmn-mesh-layout-output cmn_mesh.json --cmn-list
 ```
 
 Reuse the saved layout with only perf permissions:

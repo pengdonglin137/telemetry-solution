@@ -8,66 +8,49 @@ Arm Top-Down tool captures PMU events for the required metrics using [`perf stat
 # Requirements
 * A working [Linux Perf](https://perf.wiki.kernel.org/index.php/Main_Page) or [WindowsPerf](https://gitlab.com/Linaro/WindowsPerf/windowsperf) (3.3.3 or later) setup.
 * Python 3.10 or later.
+* [uv](https://docs.astral.sh/uv/) for Python dependency installation and locking.
 * Under Linux: `inotifywait` from `inotify-tools` package
 
 Platform prerequisites quickstart:
 
 ## Linux
 
-The following commands target Ubuntu 22.04 LTS and newer.
+The following commands target Ubuntu 22.04 LTS and newer. On other Linux distributions, install the equivalent packages (Git, Python 3, and inotify-tools) using your distribution’s package manager. Install uv using your approved local method.
 ```sh
 sudo apt-get update
-sudo apt-get install -y git python3 python3-venv python3-pip inotify-tools
+sudo apt-get install -y git python3 inotify-tools
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
-
-On other Linux distributions, install the equivalent packages (Git, Python 3 with venv and pip, and inotify-tools) using your distribution’s package manager.
-If your distribution's default `python3` is outside the supported Python range, install a supported Python version and use that interpreter to create the virtual environment.
 
 ## Windows
 ```sh
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 winget install WindowsPerf
 ```
 For more details, see the WindowsPerf documentation.
 
 # Install
 
-Run all commands in this section from the `tools/topdown_tool` directory of the telemetry repository. If you’re at the repo root:
+For normal use from a telemetry repository checkout, initialize submodules so the packaged CMN tools are present, then install the CLI from `tools/topdown_tool`. Once installed, `topdown-tool` is available from any directory:
 ```sh
 cd tools/topdown_tool
-```
-
-If you cloned the repository without updating submodules, make sure they are initialized and up to date:
-```sh
 git submodule update --init --recursive
-```
-
-We recommend installing in a Python virtual environment to avoid conflicts with the system Python and to keep your environment reproducible.
-
-About pip vs pip3:
-- Prefer `python3 -m pip ...` in commands to avoid ambiguity across distributions.
-- On some Ubuntu 22.04 systems, user-local installs may fail due to an older front-end `pip`. If that happens, see the [Known Issues](#known-issues) section for a workaround.
-
-## Method 1: Virtual environment (recommended)
-
-Create and activate a venv:
-```sh
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-Install the package:
-```sh
-python3 -m pip install .
-```
-
-Verify:
-```sh
+uv run --no-project scripts/install_topdown_tool.py
 topdown-tool --help
 ```
 
-If you need to run a virtualenv-installed `topdown-tool` with `sudo`, resolve the script path before invoking `sudo`:
+The installer first validates `uv.lock`, then installs the locked runtime package versions and Git commit SHAs into a persistent uv tool environment. The generated `.topdown-tool-install-requirements.txt` is retained locally for inspection and is ignored by Git. It does not enforce distribution artifact hashes.
+
+Plain `uv tool install .` remains an isolated persistent install, but re-resolves dependencies from `pyproject.toml` rather than using this project's lockfile. To update the locked persistent installation after updating the checkout, rerun the installer command above; do not use `uv tool upgrade`.
+
+## Develop from a repository checkout
+
+This workflow is for contributors working on a repository checkout; it is not needed for normal installation. From the repository root, initialize submodules and create the locked runtime environment:
 ```sh
-sudo "$(command -v topdown-tool)" --help
+cd tools/topdown_tool
+git submodule update --init --recursive
+uv sync --locked --no-dev
+uv run --locked topdown-tool --help
 ```
 
 > [!note] Linux
@@ -76,24 +59,6 @@ sudo "$(command -v topdown-tool)" --help
 > Error: Insufficient privilege. This tool requires either perf_event_paranoid=-1, CAP_PERFMON, or CAP_SYS_ADMIN.
 > ```
 > set the required permissions as described in the Permissions section below.
-
-## Method 2: User-local install (no virtualenv)
-
-Install for the current user:
-```sh
-python3 -m pip install --user .
-```
-
-After that, ensure that the `topdown-tool` command is available from the command line.
-
-> [!note] Linux
-> Ensure `topdown-tool` command availability by adding your local bin directory to PATH:
-> ```sh
-> export PATH="$HOME/.local/bin:$PATH"
-> ```
-> (Consider adding the line above to your shell profile, e.g., `~/.bashrc` or `~/.zshrc`.)
->
-> If installation fails on Ubuntu 22.04 with “metadata-generation-failed”, see [Known Issues](#known-issues) for a workaround.
 
 
 # Usage
@@ -133,7 +98,7 @@ On Windows, run `topdown-tool` from an Administrator Command Prompt or an Admini
 
 
 ## Verify installation and view CLI help
-Use the command below to validate the installation and display the CLI help (usage and options). It works when the `topdown-tool` script is on your PATH (e.g., inside an activated virtual environment or after a user-local install with `$HOME/.local/bin` on PATH):
+Use the command below to validate the installation and display the CLI help (usage and options):
 
 ```sh
 topdown-tool --help
@@ -145,13 +110,32 @@ Use `topdown-tool --version` to print the build identifier (base version with th
 
 ## Remote targets (devlib)
 
-The tool can collect metrics from a remote Linux or Android target through [devlib](https://gitlab.arm.com/tooling/workload-automation/devlib). Install the optional remote dependencies before using these options:
+The tool can collect metrics from a remote Linux or Android target through [devlib](https://gitlab.arm.com/tooling/workload-automation/devlib). From the same `tools/topdown_tool` checkout directory, install the optional remote extra:
 
 ```bash
-pip install ".[remote]"
+uv run --no-project scripts/install_topdown_tool.py --remote
 ```
 
-The extra pulls in devlib from its public GitLab repository. If you need a newer perf than the one bundled in devlib, copy your preferred `perf` into the relevant `devlib/bin/<abi>/` directory.
+Contributors who are working from a repository checkout can sync the optional remote dependency into the locked development environment:
+
+```bash
+uv sync --locked --extra remote --no-dev
+```
+
+The extra pulls devlib from its GitLab repository. The resolved Git commit is
+captured in `uv.lock`; authentication, if required by your environment, must be
+provided through your normal Git or CI credential configuration outside this
+repository.
+
+Then run remote commands directly, for example:
+
+```bash
+topdown-tool --target-type ssh --target-config ssh.json -- ./a.out
+```
+
+### Use a remote target
+
+If you need a newer perf than the one bundled in devlib, copy your preferred `perf` into the relevant `devlib/bin/<abi>/` directory.
 
 Once the dependencies are installed, provide the remote type with `--target-type` and the connection details with `--target-config`. The configuration argument accepts either an inline JSON object or a path to a JSON file. Supported target types are:
 - `ssh` for Linux hosts reachable over SSH.
@@ -166,7 +150,7 @@ You can also configure remote targets through environment variables `TOPDOWN_TOO
 Refer to the [devlib connection documentation](https://devlib.readthedocs.io/en/latest/connection.html) for the full list of available keys. The devlib source repository lives at https://gitlab.arm.com/tooling/workload-automation/devlib.
 
 > [!note]
-> The optional `remote` dependency group installs devlib from its GitLab repository. If you need a newer perf than the bundled one, copy your preferred binary into the corresponding ABI directory (for example, `cp perf ~/.local/lib/python3.10/site-packages/devlib/bin/arm64/`).
+> The optional `remote` extra installs devlib from its GitLab repository. It is not included in the default install, CI test runs, or BlackDuck runtime dependency export.
 
 ### Examples
 
@@ -185,7 +169,7 @@ You may also store the JSON in a file (for example `ssh.json`) and pass its path
 topdown-tool --target-type ssh --target-config ssh.json -- ./a.out
 ```
 
-The remote options must be set via environment variables or supplied on each invocation and they replace the local perf runner with the remote implementation.
+The remote options must be supplied on each invocation and they replace the local perf runner with the remote implementation.
 
 ## Choosing what to monitor
 
@@ -355,86 +339,59 @@ In some cases, this can prevent all events within a single metric from being sch
 * Use a metal instance.
 * It is possible to schedule events within a metric independently by specifying `--cpu-collect-by=none`, although note that this can lead to unusual/invalid data for all but the most homogeneous workloads.
 
-### Command not found
-If the `topdown-tool` command is not found after a user-local install, ensure that the directory for the `topdown-tool` binary is available on PATH. See details in chapter [Method 2: User-local install (no virtualenv)](#method-2-user-local-install-no-virtualenv).
+### Contributors: command not found after `uv sync`
+When developing from a repository checkout, `uv sync` installs console scripts into `.venv/bin`. Run the command through uv:
 
-If `sudo topdown-tool ...` fails after a virtual environment install, resolve the script path before invoking `sudo`:
 ```sh
-sudo "$(command -v topdown-tool)" ...
+uv run --locked topdown-tool --help
 ```
 
-## Linux
+This avoids relying on an activated environment or a globally installed command.
 
-### Ubuntu 22.04: "metadata-generation-failed" during `pip install .`
+### Remote extra fails to resolve
 
-On Ubuntu 22.04 environments, installing from source may fail with:
-```
-error: metadata-generation-failed
-```
+The `remote` extra resolves devlib from GitLab. If this fails, confirm that your
+environment has network access and any required Git credentials for:
 
-Cause:
-- The system’s `pip` (from Ubuntu 22.04) can be too old for modern build backends, and `python3 -m pip` may keep using the system `pip` module even after `--user` upgrades.
-
-Workarounds:
-
-- Preferred: use a virtual environment:
 ```sh
-python3 -m venv .venv
-source .venv/bin/activate
-python3 -m pip install .
+https://gitlab.arm.com/tooling/workload-automation/devlib.git
 ```
 
-- If you must use a user-local install, use the `pip3` script from your user bin after ensuring it’s first on PATH:
-```sh
-export PATH="$HOME/.local/bin:$PATH"
-pip3 install --user -U pip wheel "hatchling>=1.25" "packaging>=24.2"
-pip3 install --user .
-```
+Default installs do not include the `remote` extra, so this issue affects any
+installation or workflow that requests the remote extra. Rerun the installer
+without `--remote` to return the persistent tool to its default dependency set.
 
 # Development
 
 Whether you’re fixing a bug, exploring the code, or adding your own performance probe, this section will help you get started quickly and effectively.
 
-## Requirements & Virtual Environment
+## Requirements & Environment
 
-We recommend working in a Python virtual environment:
-
-```sh
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-Install the project in development (“editable”) mode with testing and linting dependencies:
+Run all commands in this section from `tools/topdown_tool`. uv creates and
+manages the local `.venv` environment from `pyproject.toml` and `uv.lock`.
 
 ```sh
-python3 -m pip install -e ".[test,lint]"
+uv sync --locked --extra test --group lint --group type --group tox --group pkg-meta
 ```
 
 ## Running from the Repository
 
-With your environment set up, you can run `topdown-tool` directly from anywhere in your shell after activating your virtualenv.
-If you make local changes to the source code, they’ll immediately be picked up.
-
-Alternativelly on Linux, you can execute the `topdown-tool` script from the project directory:
+Run the CLI through uv so dependencies are synced from the lockfile:
 ```sh
-./topdown-tool --help
+uv run --locked topdown-tool --help
 ```
 
-On Windows, you can also run:
-```cmd
-python.exe .\topdown_tool
-```
+If you make local changes to the source code, they’ll immediately be picked up.
 
 
 ## Setting Up Pre-Commit and Code Quality Tools
 
 For a smoother development experience, we recommend enabling pre-commit hooks and using our formatting/linting toolchain.
-Run the following commands from the root directory of the repository:
+Run the following commands from `tools/topdown_tool`:
 
 ```sh
-python3 -m pip install pre-commit
-pre-commit install -c .pre-commit-config.yaml --hook-type commit-msg
-pre-commit install -c tools/topdown_tool/.pre-commit-config.yaml
+uv run --locked --group lint pre-commit install -c ../../.pre-commit-config.yaml --hook-type commit-msg
+uv run --locked --group lint pre-commit install -c .pre-commit-config.yaml
 ```
 
 This will ensure checks for formatting (black), linting (flake8, pylint) and commit-message validation run automatically before each commit.
@@ -451,17 +408,21 @@ The list of valid scopes are in the [.ci/commit-msg-scopes](../../.ci/commit-msg
 
 ## Running Common Tasks
 
-- **Code formatting:**
+- **Code style and linting:**
    ```sh
-   black .
+   uv run --locked --group tox tox -e codestyle
    ```
 - **Type checking:**
    ```sh
-   mypy .
+   uv run --locked --group tox tox -e mypy
    ```
 - **Unit tests:**
    ```sh
-   pytest .
+   uv run --locked --group tox tox -e py312
+   ```
+- **Package metadata checks:**
+   ```sh
+   uv run --locked --group tox tox -e pkg_meta
    ```
 
 ## Regenerating and Diffing Test Fixtures
@@ -470,11 +431,11 @@ We maintain golden (“reference”) outputs for some CLI and probe tests. If a 
 
 - To view a diff of changes without overwriting:
    ```sh
-   pytest --regen-reference=dryrun --tb=short
+   uv run --locked --extra test pytest --regen-reference=dryrun --tb=short
    ```
 - To overwrite reference files with new outputs:
    ```sh
-   pytest --regen-reference=write
+   uv run --locked --extra test pytest --regen-reference=write
    ```
 
 See `conftest.py` for more details on this workflow.

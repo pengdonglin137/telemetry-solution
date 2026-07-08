@@ -1,4 +1,5 @@
 SME
+astroid
 sme
 requestor
 requestors

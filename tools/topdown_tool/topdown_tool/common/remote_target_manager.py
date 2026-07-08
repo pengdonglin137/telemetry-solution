@@ -172,8 +172,10 @@ class RemoteTargetManager:
         except Exception as exc:  # pylint: disable=broad-exception-caught
             raise RuntimeError(
                 "devlib is required for --target-type/--target-config but is not available. "
-                'Install the remote extra (python3 -m pip install -e ".[remote]") or fetch it from: '
-                "https://gitlab.arm.com/tooling/workload-automation/devlib"
+                "Install remote support with "
+                "'uv run --no-project scripts/install_topdown_tool.py --remote' from "
+                "tools/topdown_tool. For a checkout development environment, use "
+                "'uv sync --locked --extra remote --no-dev'."
             ) from exc
 
         target: Target

@@ -9,6 +9,8 @@ topdown-tool --help
 
 For install, permissions, and general usage, see the top-level [README.md](./README.md).
 
+These examples assume the normal locked persistent installation described in the main README. Contributors running from a checkout should sync first, then prefix commands with `uv run --locked` (or use an equivalent repository run command).
+
 ## What the CPU probe does
 
 The CPU probe collects PMU-based metrics according to Arm’s Top-down performance analysis methodology and other micro-architectural metric groups defined in a CPU telemetry specification (JSON). It can:
