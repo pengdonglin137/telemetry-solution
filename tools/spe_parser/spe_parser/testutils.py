@@ -3,9 +3,9 @@
 
 import hashlib
 import os
+from collections.abc import Generator
 from contextlib import contextmanager
 from subprocess import check_call
-from typing import Generator
 
 import requests
 

@@ -2,32 +2,32 @@ files: '^tools/spe_parser/'
 exclude: '^tools/spe_parser/LICENSES/|^tools/spe_parser/tests/testdata/'
 repos:
   - repo: 'https://github.com/pre-commit/pre-commit-hooks'
-    rev: v4.6.0
+    rev: v6.0.0
     hooks:
       - id: check-yaml
       - id: end-of-file-fixer
       - id: trailing-whitespace
   - repo: 'https://github.com/asottile/pyupgrade'
-    rev: v2.32.1
+    rev: v3.21.2
     hooks:
       - id: pyupgrade
         args:
           - '--py310-plus'
   - repo: 'https://github.com/PyCQA/isort'
-    rev: 5.11.5
+    rev: 8.0.1
     hooks:
       - id: isort
         args: ['--profile=black']
   - repo: 'https://github.com/psf/black'
-    rev: 22.3.0
+    rev: 26.5.1
     hooks:
       - id: black
   - repo: 'https://github.com/pycqa/flake8'
-    rev: 7.1.1
+    rev: 7.3.0
     hooks:
       - id: flake8
         args: ['--ignore=E203,E226,E501,W503,W504']
   - repo: 'https://github.com/codespell-project/codespell'
-    rev: v2.1.0
+    rev: v2.4.2
     hooks:
       - id: codespell

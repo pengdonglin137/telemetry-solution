@@ -275,7 +275,7 @@ spe-parser:
         - fix,type,pkg_meta
   script:
     - |
-      uv run --directory tools/spe_parser --no-project --with tox tox -e "$PYENV"
+      uv run --directory tools/spe_parser --locked --group tox tox -e "$PYENV"
   artifacts:
     reports:
       junit:

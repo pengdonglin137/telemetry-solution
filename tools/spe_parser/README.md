@@ -10,19 +10,23 @@ For an introduction to Statistical Profiling Extension, refer to the [Arm Archit
 
 Ensure you have the following prerequisites before installing the `spe-parser` tool:
 
-- pip version 18.0.0 or higher (Use `pip install --upgrade pip` to update pip)
+- [uv](https://docs.astral.sh/uv/)
 - python version 3.10 or higher
 
-To install `spe-parser`:
+`spe-parser` uses uv to install dependencies from `pyproject.toml` and lock them in
+`uv.lock`.
+
+To install `spe-parser` in a local environment:
 
 ```bash
-pip install .
+uv sync --locked --no-dev
 ```
 
-For development mode installation, your pip version should be v21.3 or higher:
+To run `spe-parser` without installing it separately, prefix the normal command
+with `uv run --locked`:
 
 ```bash
-pip install -e .
+uv run --locked spe-parser perf.data
 ```
 
 ## Usage
@@ -39,7 +43,7 @@ For more options and a detailed introduction, please refer to the  [Arm Statisti
 To parse the `perf` binary data and output in Parquet format:
 
 ```bash
-spe-parser perf.data
+uv run --locked spe-parser perf.data
 ```
 
 ---
@@ -47,7 +51,7 @@ spe-parser perf.data
 To obtain output in CSV format:
 
 ```bash
-spe-parser perf.data -t csv
+uv run --locked spe-parser perf.data -t csv
 ```
 
 ---
@@ -55,7 +59,7 @@ spe-parser perf.data -t csv
 To modify the output files prefix to `record1`:
 
 ```bash
-spe-parser perf.data -t csv -p record1
+uv run --locked spe-parser perf.data -t csv -p record1
 ```
 
 This will result in the creation of three files: record1-ldst.csv, record1-br.csv, and record1-other.csv, corresponding respectively to Load/Store, Branch, and Other SPE packets.
@@ -65,7 +69,7 @@ This will result in the creation of three files: record1-ldst.csv, record1-br.cs
 The `spe-parser` will by default parse Load/Store, Branch, and Other SPE packets into three separate files. To disable parsing for a specific packet type, use the options below:
 
 ```bash
-spe-parser perf.data --noldst --noother --nobr
+uv run --locked spe-parser perf.data --noldst --noother --nobr
 ```
 
 ---
@@ -73,7 +77,7 @@ spe-parser perf.data --noldst --noother --nobr
 To speed up parsing, increase concurrency; to use less resources, decrease it. By default, the system's core count is used. To change it:
 
 ```bash
-spe-parser perf.data --concurrency 2
+uv run --locked spe-parser perf.data --concurrency 2
 ```
 
 ---
@@ -81,7 +85,7 @@ spe-parser perf.data --concurrency 2
 To include symbol information for corresponding instructions in the output files:
 
 ```bash
-spe-parser perf.data --symbols
+uv run --locked spe-parser perf.data --symbols
 ```
 
 Please make sure your workload is compiled with debug information (e.g. -g).
@@ -91,7 +95,7 @@ Please make sure your workload is compiled with debug information (e.g. -g).
 To parse raw SPE fill buffer data (e.g. generated with [WindowsPerf](https://gitlab.com/Linaro/WindowsPerf/windowsperf)), use the options below:
 
 ```bash
-spe-parser spe.data --raw-buffer
+uv run --locked spe-parser spe.data --raw-buffer
 ```
 
 Please note that raw SPE buffer doesn't contain additional meta-data perf.data file contains, e.g. no symbol name resolution is possible.
@@ -101,7 +105,7 @@ Please note that raw SPE buffer doesn't contain additional meta-data perf.data f
 To check the `spe-parser` version, which is crucial as the file schema may change between versions, the updates between each version can be found in the [Changelog](CHANGELOG.md):
 
 ```bash
-spe-parser --version
+uv run --locked spe-parser --version
 ```
 
 ---
@@ -109,7 +113,7 @@ spe-parser --version
 For detailed scheme descriptions of output files, column explanations, and possible values and meanings:
 
 ```bash
-spe-parser --help
+uv run --locked spe-parser --help
 ```
 
 ## Development
@@ -117,8 +121,7 @@ spe-parser --help
 Run tests using the following command.
 
 ```bash
-pip install tox
-make test
+uv run --locked --group tox tox
 ```
 
 For now, please refrain from using pre-commit to install the .pre-commit-config.yaml configuration, and instead run make lint to check.
@@ -126,5 +129,15 @@ For now, please refrain from using pre-commit to install the .pre-commit-config.
 ```bash
 make lint
 ```
+
+The tox test matrix uses the tox-uv plugin and syncs tox environments from
+`uv.lock`. To run one environment explicitly:
+
+```bash
+uv run --locked --group tox tox -e py312
+```
+
+The full matrix includes Python 3.10 through 3.14. Missing local interpreters are
+skipped by tox; CI is expected to provide the supported interpreter set.
 
 Test data files are located under the spe_parser/tests/testdata/ directory. Some of them are binary files that are stored using git-lfs; working with them requires installing git-lfs (if not yet done so) by issuing `git lfs install`. Adding a new file is done by `git lfs track <file>`, then `git add` both this file and the resulting change in .gitattributes and then `git commit`. Updating a file is similar to updating regular git files: modify, then `git add` followed by `git commit`.

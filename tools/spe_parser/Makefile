@@ -3,12 +3,12 @@
 
 .PHONY: test
 test:
-	@tox
+	@uv run --group tox tox
 
 .PHONY: install
 install:
-	@pip3 install .
+	@uv sync --no-dev
 
 .PHONY: lint
 lint:
-	@pre-commit run --show-diff-on-failure --all-files
+	@uv run --group lint pre-commit run --show-diff-on-failure --all-files

@@ -7,8 +7,9 @@
 #   https://developer.arm.com/documentation/ddi0487/latest/
 
 import logging
+from collections.abc import Generator
 from functools import lru_cache
-from typing import BinaryIO, Generator
+from typing import BinaryIO
 
 import spe_parser.errors as err
 
