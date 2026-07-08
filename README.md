@@ -303,6 +303,7 @@ The tooling stack enables collection, parsing, and analysis of telemetry data. T
 | SPE Parser          | Tool to parse SPE raw data and generate a Parquet or CSV file for further processing and analysis. | [tools/spe_parser](https://gitlab.arm.com/telemetry-solution/telemetry-solution/-/tree/main/tools/spe_parser) |
 | UStress Charts      | Visualization tooling for metrics generated from the ustress suite workloads. | [tools/ustress_charts](https://gitlab.arm.com/telemetry-solution/telemetry-solution/-/tree/main/tools/ustress_charts) |
 
+Python-based tools use [`uv`](https://docs.astral.sh/uv/) for dependency management; install it before running a tool's documented commands.
 
 ## Benchmarks
 

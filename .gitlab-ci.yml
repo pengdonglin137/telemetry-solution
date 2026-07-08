@@ -31,7 +31,8 @@ variables:
   DOCKER_REGISTRY_KEY: "oss-android--docker"
   ARTIFACTORY_REGISTRY_URL: "${DOCKER_REGISTRY_KEY}.${ARTIFACTORY_HOST}"
   REGISTRY_IMAGE_X86_64: "${ARTIFACTORY_REGISTRY_URL}/telemetry-solution-x86_64:$CI_COMMIT_REF_SLUG" # Not in use at the moment
-  REGISTRY_IMAGE_AARCH64: "${ARTIFACTORY_REGISTRY_URL}/telemetry-solution-aarch64:$CI_COMMIT_REF_SLUG"    
+  REGISTRY_IMAGE_AARCH64: "${ARTIFACTORY_REGISTRY_URL}/telemetry-solution-aarch64:$CI_COMMIT_REF_SLUG"
+  UV_PYTHON_DOWNLOADS: "never"
 
 commit-message-check:
   stage: pre-check
@@ -169,6 +170,25 @@ build-docker-x64:
   tags: [linux_x86_64]
   stage: build-and-test
 
+uv-lock-check:
+  extends: .build-base
+  script:
+    - |
+      set -euo pipefail
+
+      lockfiles="$(find tools -path '*/.venv' -prune -o -name uv.lock -print | sort)"
+
+      if [ -z "$lockfiles" ]; then
+        echo "No per-project uv.lock files found."
+        exit 0
+      fi
+
+      for lockfile in $lockfiles; do
+        project_dir="$(dirname "$lockfile")"
+        echo "Checking $project_dir"
+        uv lock --directory "$project_dir" --check
+      done
+
 build-ustress:
   extends: .build-base
   parallel:
@@ -247,11 +267,7 @@ spe-parser:
         - fix,type,pkg_meta
   script:
     - |
-      python3 -m venv .venv
-      source .venv/bin/activate
-      pip install tox
-      cd tools/spe_parser
-      tox -e $PYENV
+      uv run --directory tools/spe_parser --no-project --with tox tox -e "$PYENV"
   artifacts:
     reports:
       junit:
@@ -269,11 +285,7 @@ topdown-tool:
         - mypy
   script:
     - |
-      python3 -m venv .venv
-      source .venv/bin/activate
-      pip install tox
-      cd tools/topdown_tool
-      tox -e $PYENV
+      uv run --directory tools/topdown_tool --no-project --with tox tox -e "$PYENV"
   artifacts:
     reports:
       junit:
@@ -291,34 +303,24 @@ topdown-tool-blackduck:
       when: never
   script:
     - |
-      python3 -m venv .venv
-      source .venv/bin/activate
       BASELINE_VERSION=$(cat .ci/blackduck-baseline-version)
       cd tools/topdown_tool
-      python -m pip install .
-      CURRENT_VERSION=$(python -m pip show topdown-tool | grep Version | awk '{print $2}')-$CI_COMMIT_SHORT_SHA
+      CURRENT_VERSION=$(uv run python -c 'from importlib.metadata import version; print(version("topdown-tool"))')-$CI_COMMIT_SHORT_SHA
       ../../.ci/blackduck-scan.sh $BASELINE_VERSION $CURRENT_VERSION $BLACKDUCK_TOPDOWN_TOOL_PROJECT_ID $BLACKDUCK_TOPDOWN_TOOL_PROJECT_NAME './topdown_tool,./tests'
 
 validate-cpu-specs:
   extends: .build-base
   script:
     - |
-      python3 -m venv .venv
-      source .venv/bin/activate
-      python -m pip install tools/topdown_tool
-      validate-cpu-spec --spec-dir data/pmu/cpu/specifications --schema-dir data/pmu/cpu/schemas
+      uv run --directory tools/topdown_tool validate-cpu-spec --spec-dir ../../data/pmu/cpu/specifications --schema-dir ../../data/pmu/cpu/schemas
 
 perf-json-generator:
   extends: .build-base
   script:
     - |
       export WORKSPACE=$PWD
-      python3 -m venv .venv
-      source .venv/bin/activate
       pushd tools/perf_json_generator
-      pip install pre-commit
-      pre-commit install
-      pre-commit run --all-files
+      uv run --with pre-commit pre-commit run --all-files
       git clone --sparse --depth=1 --single-branch https://github.com/torvalds/linux.git
       pushd linux
       git sparse-checkout add tools/perf
@@ -353,13 +355,10 @@ topdown-tool-create-package:
   script:
     - |
       apt update
-      apt install -y binutils
-      python3 -m venv .venv
-      source .venv/bin/activate
-      pip install pyinstaller
+      apt install -y binutils curl
+      curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL=/usr/local/bin sh
       cd tools/topdown_tool
-      pip install .
-      pyinstaller --clean -Fsn topdown-tool --optimize 2 --bootloader-ignore-signals --copy-metadata topdown_tool \
+      uv run --with pyinstaller pyinstaller --clean -Fsn topdown-tool --optimize 2 --bootloader-ignore-signals --copy-metadata topdown_tool \
         --hidden-import topdown_tool.cmn_probe.cmn_factory \
         --hidden-import topdown_tool.cpu_probe.cpu_factory \
         --add-data ../../data/pmu/cpu:topdown_tool/data/pmu/cpu \

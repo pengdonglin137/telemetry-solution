@@ -2,6 +2,19 @@
 
 This folder contains the tools for Telemetry solution and methodologies.
 
+## Python dependency workflow
+
+Use uv for Python tool environments and dependency locking. Each Python tool is locked independently with a `uv.lock` next to that tool's `pyproject.toml`; the repository does not use a root lockfile.
+
+When changing dependencies for a Python tool, run uv from that tool directory:
+
+```sh
+uv lock
+uv lock --check
+uv run <command>
+```
+
+CI checks every committed per-tool `uv.lock` for freshness.
 
 ## topdown_tool
 

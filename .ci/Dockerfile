@@ -9,7 +9,8 @@ ARG APT_PORTS_MIRROR_URL
 ARG APT_ARCHIVE_MIRROR_URL
 ARG APT_SECURITY_MIRROR_URL
 
-ENV DEBIAN_FRONTEND=noninteractive 
+ENV DEBIAN_FRONTEND=noninteractive
+ENV UV_PYTHON_DOWNLOADS=never
 
 RUN set -ex; \
     export DEBIAN_FRONTEND=noninteractive; \
@@ -36,4 +37,9 @@ RUN set -ex; \
     else \
         apt-get -y install gcc-10-aarch64-linux-gnu g++-10-aarch64-linux-gnu gcc-aarch64-linux-gnu; \
     fi; \
+    curl -LsSf https://astral.sh/uv/install.sh -o /tmp/uv-install.sh; \
+    env UV_INSTALL_DIR=/usr/local/bin sh /tmp/uv-install.sh; \
+    rm /tmp/uv-install.sh; \
+    uv --version; \
+    rm -rf /root/.cache/uv; \
     rm -rf /var/lib/apt/lists/* /usr/share/man/* /usr/share/doc/*;

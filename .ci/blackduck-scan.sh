@@ -14,6 +14,11 @@ VERSIONS_LIMIT=24
 echo BASELINE_VERSION:$BASELINE_VERSION
 echo CURRENT_VERSION:$CURRENT_VERSION
 
+if [ ! -f pyproject.toml ]; then
+    echo "Expected pyproject.toml in the current directory." >&2
+    exit 1
+fi
+
 blackduck_get_json() {
     local bearer_token=$1
     local link_to_download=$2
@@ -115,7 +120,23 @@ cleanup_old_project_versions() {
 BEARER_TOKEN=$(curl -fsS -X POST -H "Accept: application/vnd.blackducksoftware.user-4+json" -H "Content-Type: application/json" -H "Authorization: token $BLACKDUCK_SVC_ACCOUNT_API_KEY" ${BLACKDUCK_HOST_URL}/api/tokens/authenticate | jq -r '.bearerToken')
 cleanup_old_project_versions $BEARER_TOKEN $PROJECT_ID $VERSIONS_LIMIT $CURRENT_VERSION
 
-python -m pip freeze > requirements.txt
+if [ -f uv.lock ]; then
+    uv export \
+        --locked \
+        --format requirements.txt \
+        --output-file requirements.txt \
+        --no-dev \
+        --no-emit-project \
+        --no-hashes \
+        --no-header \
+        --no-annotate
+else
+    uv pip compile pyproject.toml \
+        --universal \
+        --output-file requirements.txt \
+        --no-header \
+        --no-annotate
+fi
 curl -fsSL $BLACKDUCK_DETECT_SCRIPT_URL -o detect_arm.sh
 chmod +x ./detect_arm.sh
 ./detect_arm.sh \
