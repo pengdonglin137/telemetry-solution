@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Arm Limited
+
+[project]
+name = "perf-json-generator"
+version = "0.1.0"
+description = "Generate Linux perf PMU event and metric JSON from Arm telemetry data."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+dependencies = []
+
+[dependency-groups]
+dev = [
+  "pre-commit",
+  "flake8",
+  "mypy",
+  "pytest",
+]
+
+[tool.uv]
+package = false

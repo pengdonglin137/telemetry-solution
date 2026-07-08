@@ -2,7 +2,8 @@
 
 This directory contains a script that generates json files for Perf
 which enable and document Arm PMU events and metrics. It requires Python
-3.8, and there are no additional pip dependencies to run the script.
+3.10 or newer, and there are no additional Python package dependencies
+to run the script.
 
 The json files are generated in place in the Linux repo. As in, new
 events will be added inline with, or replace, existing ones. For this
@@ -21,7 +22,7 @@ Download your input json files from the telemetry-solution repo
 them into the script along with the path to Perf:
 
 ```
-./generate.py <perf-folder> --telemetry-files neoverse_n1_pmu_specification.json
+uv run --locked ./generate.py <perf-folder> --telemetry-files neoverse_n1_pmu_specification.json
 ```
 
 ## Usage for arm-data input format
@@ -31,7 +32,7 @@ the script the path to Perf, the path to the arm-data repo, and the name
 of the CPUs that should be generated:
 
 ```
-./generate.py <perf-folder> --arm-data-path <arm-data-folder> --arm-data-cpus neoverse-n2
+uv run --locked ./generate.py <perf-folder> --arm-data-path <arm-data-folder> --arm-data-cpus neoverse-n2
 ```
 
 ## Perf metrics adjustments
@@ -55,7 +56,7 @@ this example the N1 events already exist as 'cortex-a76-n1' but in other
 cases it may not be required:
 
 ```
-./generate.py <perf-folder> --telemetry-files neoverse_n1_pmu_specification.json:cortex-a76-n1
+uv run --locked ./generate.py <perf-folder> --telemetry-files neoverse_n1_pmu_specification.json:cortex-a76-n1
 ```
 
 # Contributing
@@ -65,12 +66,12 @@ or an issue via:
 
   https://gitlab.arm.com/telemetry-solution/telemetry-solution
 
-To install the dev requirements (not required to only run the script)
-run:
+Development dependencies are managed with uv from `pyproject.toml` and
+`uv.lock`. To install the dev requirements (not required to only run the
+script) run:
 
 ```
-pip install -r requirements-dev.txt
-pre-commit install
+uv sync --locked
 ```
 
 There is a pre-commit hook that will run the following things
@@ -83,7 +84,7 @@ Flake8 defaults, but with 100 character line lengths (as set by
 folder:
 
 ```
-flake8
+uv run --locked flake8
 ```
 
 ## Tests
@@ -92,7 +93,7 @@ Pytest is used with its defaults, and can be run with the
 following commands in this folder:
 
 ```
-pytest
+uv run --locked pytest
 ```
 
 ## Static type checking
@@ -101,7 +102,7 @@ Mypy is also used with its defaults, and can be run with the
 following commands in this folder:
 
 ```
-mypy .
+uv run --locked mypy .
 ```
 
 ## Maintainers

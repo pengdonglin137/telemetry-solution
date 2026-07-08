@@ -328,7 +328,7 @@ perf-json-generator:
     - |
       export WORKSPACE=$PWD
       pushd tools/perf_json_generator
-      uv run --with pre-commit pre-commit run --all-files
+      uv run --locked pre-commit run --all-files
       git clone --sparse --depth=1 --single-branch https://github.com/torvalds/linux.git
       pushd linux
       git sparse-checkout add tools/perf
