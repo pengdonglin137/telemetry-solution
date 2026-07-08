@@ -4,23 +4,29 @@
 
 ## Getting started
 
-`ustress-charts.py` requires *matplotlib* to be installed.
+`ustress-charts.py` uses [uv](https://docs.astral.sh/uv/). Run commands with
+`uv run --locked` to install and execute the Python dependencies declared in
+`pyproject.toml` and resolved in `uv.lock`. The locked environment also includes the sibling `topdown-tool`
+project, so run commands through uv rather than relying on a globally installed
+`topdown-tool`.
 
 ```sh
-# Setup virtualenv
-python3 -m venv .venv
+cd tools/ustress_charts
 
-# Load python environment
-source .venv/bin/activate
-
-# Install matplotlib
-pip install matplotlib
+uv run --locked topdown-tool --help
+uv run --locked ./ustress-charts.py --help
 ```
 
-To generate your first charts using `ustress-charts.py`, ensure that perf monitoring is possible (this can be achieved by setting `echo -1 >/proc/sys/kernel/perf_event_paranoid` as root). Then use the following command:
+To generate your first charts using `ustress-charts.py`, ensure that:
+
+1. UStress workloads are built under `benchmarks/ustress`.
+1. perf monitoring is possible. This can be achieved by running
+   `echo -1 >/proc/sys/kernel/perf_event_paranoid` as root.
+
+Then use the following command:
 
 ```sh
-./ustress-charts.py --workload branch_direct_workload branch_indirect_workload
+uv run --locked ./ustress-charts.py --workload branch_direct_workload branch_indirect_workload
 ```
 
 Collected data will be saved to `dataset_branch_direct_workload_cpu0_run0.csv` and `dataset_branch_indirect_workload_cpu0_run0.csv`.
@@ -37,4 +43,4 @@ Invoke the script with the `--help` option to view additional options.
 ## Limitations
 
 1. It is not possible to pass arguments to workloads
-1. All selected workloads will run on the same single CPU
+2. All selected workloads will run on the same single CPU

@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2024-2026 Arm Limited
+
+[project]
+name = "ustress-charts"
+version = "0.1.0"
+description = "Generate charts from Arm Top-Down tool data collected for UStress workloads."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+dependencies = [
+  "matplotlib",
+]
+
+[tool.uv]
+package = false

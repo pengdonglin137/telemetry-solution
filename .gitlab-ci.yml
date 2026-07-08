@@ -207,6 +207,14 @@ build-ustress:
       - benchmarks/ustress/ustress-*.zip
     expire_in: 7 days
 
+ustress-charts:
+  extends: .build-base
+  script:
+    - |
+      cd tools/ustress_charts
+      uv lock --check
+      uv run --locked ./ustress-charts.py --help
+
 build-sysstress:
   extends: .build-base
   script:
