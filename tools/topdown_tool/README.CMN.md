@@ -178,12 +178,12 @@ CMN-700 at index 0
 
 - Collect specific metric groups (comma-separated, case-insensitive):
   ```sh
-  topdown-tool --probe CMN --cmn-metric-groups HNF_Ingress_Traffic -- ./a.out
+  topdown-tool --probe CMN --cmn-metric-group HNF_Ingress_Traffic -- ./a.out
   ```
 
 - Restrict counting to specific CMNs:
   ```sh
-  topdown-tool --probe CMN --cmn-indices 0 --cmn-metric-groups HNF_Ingress_Traffic -- ./a.out
+  topdown-tool --probe CMN --cmn-indices 0 --cmn-metric-group HNF_Ingress_Traffic -- ./a.out
   ```
 
 ## Location filters
@@ -205,12 +205,12 @@ Filter format examples:
 
 - Control multiplexing grouping (default: metric):
   ```sh
-  topdown-tool --probe CMN --cmn-collect-by none --cmn-metric-groups HNF_Ingress_Traffic -- ./a.out
+  topdown-tool --probe CMN --cmn-collect-by none --cmn-metric-group HNF_Ingress_Traffic -- ./a.out
   ```
   `--cmn-collect-by` accepts `none` or `metric`. Grouping by metric keeps related events in the same time slice when multiplexing.
 - Collect per-node/device metrics:
   ```sh
-  topdown-tool --probe CMN --cmn-capture-per-device-id --cmn-metric-groups HNF_Ingress_Traffic -- ./a.out
+  topdown-tool --probe CMN --cmn-capture-per-device-id --cmn-metric-group HNF_Ingress_Traffic -- ./a.out
   ```
 
 ## CSV output
@@ -235,16 +235,19 @@ CSV is the easiest way to post-process both metrics and raw events.
 Examples:
 - Metrics:
   ```sh
-  topdown-tool --probe CMN --csv-output-path out --cmn-generate-csv metrics sleep 5
+  topdown-tool --probe CMN --csv-output-path out --cmn-generate-csv metrics -- sleep 5
   ```
 - Events:
   ```sh
-  topdown-tool --probe CMN --csv-output-path out --cmn-generate-csv events sleep 5
+  topdown-tool --probe CMN --csv-output-path out --cmn-generate-csv events -- sleep 5
   ```
 - Both metrics and events:
   ```sh
-  topdown-tool --probe CMN --csv-output-path out --cmn-generate-csv metrics,events sleep 5
+  topdown-tool --probe CMN --csv-output-path out --cmn-generate-csv metrics,events -- sleep 5
   ```
+
+Notes:
+- Interval option (`-I`/`--interval`) is currently not supported for CMN
 
 ### CSV output organization
 
@@ -524,7 +527,7 @@ Groups do not change perf encoding. They only describe how events and metrics sh
 
 ### Common selection
 
-- `--cmn-metric-groups`: Comma-separated metric groups to collect (default: all).
+- `--cmn-metric-group`: Comma-separated metric groups to collect (default: all).
 - `--cmn-metrics`: Comma-separated metric names to collect (default: all).
 - `--cmn-indices`: Comma-separated CMN indices to collect.
 - `--cmn-generate-csv`: `metrics`, `events`, or both.

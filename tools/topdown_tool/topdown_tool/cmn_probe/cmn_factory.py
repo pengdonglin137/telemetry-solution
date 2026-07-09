@@ -116,7 +116,9 @@ class CmnProbeFactoryCliConfigBuilder(
             help="Comma separated list of metrics to collect. See --cmn-list-metrics for available metrics",
         )
         parser.add_argument(
+            "--cmn-metric-group",
             "--cmn-metric-groups",
+            dest="cmn_metric_groups",
             type=lambda x: x.split(","),
             help="Comma separated list of metric groups to collect. See --cmn-list-groups for available groups",
         )
