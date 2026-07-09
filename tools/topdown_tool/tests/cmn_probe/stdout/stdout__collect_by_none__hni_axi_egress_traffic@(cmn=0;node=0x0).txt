@@ -1,0 +1,9 @@
+Regular Metrics CMN-700 R0P0 at index 0
+                                           HNI AXI Egress Traffic                                            
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┓
+┃ Metric                                                 ┃ XP 0x000 Port #0 Node 0x000 ┃ Units              ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━┩
+│ HNI Egress read request stall rate on AXI interfaces.  │                   1,344.826 │ Stalls per 1K clks │
+│ HNI Egress write request stall rate on AXI interfaces. │                     383.663 │ Stalls per 1K clks │
+│ HNI Egress write data stall rate on AXI interfaces.    │                     738.107 │ Stalls per 1K clks │
+└────────────────────────────────────────────────────────┴─────────────────────────────┴────────────────────┘

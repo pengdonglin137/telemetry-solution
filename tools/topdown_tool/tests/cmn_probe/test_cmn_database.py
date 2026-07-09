@@ -44,6 +44,21 @@ def _assert_reference(actual: object, reference_name: str, regen_reference_mode:
     assert_reference_text(str(actual), OUTPUT_DIR / reference_name, regen_reference_mode)
 
 
+def test_extract_locations_parses_locations(cmn_db: CmnDatabase) -> None:
+    locations = cmn_db.extract_locations(
+        [
+            "metric_global@(CMN=0)",
+            "metric_xp@(CMN=0;XP=0x200)",
+            "metric_port@((CMN=0;XP=0x200;Port=1);(CMN=0;Node=0x204))",
+        ]
+    )
+
+    assert locations["metric_global"] == (CmnLocation(0),)
+    assert locations["metric_xp"] == (XpLocation(0, 0x200),)
+    assert locations["metric_port"][0] == PortLocation(0, 0x200, 1)
+    assert locations["metric_port"][1] == NodeLocation(0, 0x200, 1, 0x204)
+
+
 @pytest.mark.parametrize(
     "params, reference",
     [
@@ -306,6 +321,25 @@ def test_get_json_topdown_groups(
             ),
             "get_collectable_metrics_1.txt",
         ),
+        (
+            (
+                (
+                    "cmn_hnf_fwded_snp_rate@(CMN=0)",
+                    "cmn_hns_fwded_snp_rate",
+                    "cmn_hni_axi_ar_stall_rate",
+                    "cmn_hnp_rxreq_rate",
+                    "cmn_rnf_txreq_rate",
+                    "cmn_rni_rrt_avg_occupancy",
+                    "cmn_rnd_txreq_rate@(CMN=0;XP=0x200)",
+                    "cmn_snf_rxreq_rate",
+                    "cmn_ccgra_reqtrk_avg_occupancy",
+                    "cmn_ccgha_reqtrk_avg_occupancy",
+                    "cmn_ccgla_rxcxs_avg_size",
+                    "cmn_ccg_rxreq_rate",
+                ),
+            ),
+            "get_collectable_metrics_1.txt",
+        ),
     ],
 )
 def test_get_collectable_metrics(
@@ -336,12 +370,62 @@ def test_get_collectable_metrics(
             ),
             "get_collectable_groups_1.txt",
         ),
+        (
+            (
+                (
+                    "HNF_Analysis_Occupancy@(CMN=0)",
+                    "HNS_Analysis_Occupancy",
+                    "HNI_CHI_Ingress_Traffic",
+                    "HNP_CHI_Ingress_Traffic",
+                    "RNF_CHI_Egress_Traffic@(CMN=0;XP=0x200)",
+                    "RNI_CHI_Egress_Traffic",
+                    "RND_CHI_Egress_Traffic",
+                    "SNF_Ingress_Traffic",
+                    "CCG_RA_TRK_Effectiveness",
+                    "CCG_HA_TRK_Effectiveness",
+                    "CCG_LA_Effectiveness",
+                    "CCG_Req_Opcode_Mix",
+                ),
+            ),
+            "get_collectable_groups_1.txt",
+        ),
     ],
 )
 def test_get_collectable_groups(
     regen_reference_mode, cmn_db: CmnDatabase, params: Tuple[object, ...], reference: str
 ) -> None:
     _assert_reference(cmn_db.get_collectable_groups(*params), reference, regen_reference_mode)
+
+
+def test_get_collectable_topdown_metrics_discards_locations(cmn_db: CmnDatabase) -> None:
+    metrics = ("cmn_bw_ccg_cc_destination", "cmn_bw_ccg_cc_requestor")
+    groups = ("CMN_Requestor_Target_Characterization_Level_One",)
+
+    expected = cmn_db.get_collectable_topdown_metrics(metrics, groups)
+
+    metrics_with_locations = (
+        f"{metrics[0]}@(CMN=0)",
+        f"{metrics[1]}@(CMN=0;XP=0x200)",
+    )
+    groups_with_locations = (f"{groups[0]}@(CMN=0)",)
+
+    assert (
+        cmn_db.get_collectable_topdown_metrics(metrics_with_locations, groups_with_locations)
+        == expected
+    )
+
+
+def test_get_collectable_base_metrics_for_topdown_group_discards_locations(
+    cmn_db: CmnDatabase,
+) -> None:
+    groups = ("CMN_Requestor_Target_Characterization_Level_One",)
+    expected = cmn_db.get_collectable_base_metrics_for_topdown_group(groups)
+    groups_with_locations = (f"{groups[0]}@(CMN=0;XP=0x200)",)
+
+    assert (
+        cmn_db.get_collectable_base_metrics_for_topdown_group(groups_with_locations)
+        == expected
+    )
 
 
 @pytest.mark.parametrize(

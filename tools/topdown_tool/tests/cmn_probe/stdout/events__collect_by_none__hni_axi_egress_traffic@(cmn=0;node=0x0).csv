@@ -1,0 +1,7 @@
+Group,Metric,Event,CMN,X,Y,Port,Node,Value
+HNI_AXI_Egress_Traffic,cmn_hni_axi_ar_stall_rate,SYS_CMN_CYCLES,0,0,0,0,0,3342861650.0
+HNI_AXI_Egress_Traffic,cmn_hni_axi_ar_stall_rate,PMU_HNI_ARVALID_NO_ARREADY,0,0,0,0,0,4495567578.0
+HNI_AXI_Egress_Traffic,cmn_hni_axi_aw_stall_rate,SYS_CMN_CYCLES,0,0,0,0,0,3342861650.0
+HNI_AXI_Egress_Traffic,cmn_hni_axi_aw_stall_rate,PMU_HNI_AWVALID_NO_AWREADY,0,0,0,0,0,1282531504.0
+HNI_AXI_Egress_Traffic,cmn_hni_axi_w_stall_rate,SYS_CMN_CYCLES,0,0,0,0,0,3342861650.0
+HNI_AXI_Egress_Traffic,cmn_hni_axi_w_stall_rate,PMU_HNI_WVALID_NO_WREADY,0,0,0,0,0,2467390344.0

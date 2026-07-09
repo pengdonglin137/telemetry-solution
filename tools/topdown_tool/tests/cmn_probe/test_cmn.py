@@ -355,6 +355,16 @@ SCENARIOS: List[Scenario] = [
         ],
         "collect_by": CollectBy.NONE,
     },
+    {
+        "capture_per_device_id": False,
+        "groups": ["HNI_AXI_Egress_Traffic@(CMN=0;Node=0x0)"],
+        "collect_by": CollectBy.NONE,
+    },
+    {
+        "capture_per_device_id": False,
+        "groups": ["RNF_CHI_Egress_Traffic@(CMN=0;XP=0x200;Port=1)"],
+        "collect_by": CollectBy.NONE,
+    },
 ]
 
 
@@ -404,7 +414,7 @@ def test_cmn_capture(regen_reference_mode, capsys, setup_environment, scenario: 
         regen_reference_mode,
     )
 
-    for cmn_index in (0, 1):
+    for cmn_index in cmn_probe.used_cmns:
         metrics_reference = _reference_name(f"metrics_{cmn_index}", scenario, "csv")
         metrics_output = _metrics_output_name(cmn_index, scenario["groups"])
         assert_reference_file(

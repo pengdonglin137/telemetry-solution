@@ -234,6 +234,9 @@ class CmnProbe(Base.Probe):
                     unique_metrics_to_collect.update(base_group)
                 metrics_to_collect = {"Regular Metrics": tuple(unique_metrics_to_collect)}
 
+        self.user_locations_for_groups = self.database.extract_locations(self.conf.groups)
+        self.user_locations_for_metrics = self.database.extract_locations(self.conf.metrics)
+
         if self.topdown_metrics_capture and self.base_metrics_capture:
             assert isinstance(topdown_metrics_to_collect, dict)
             assert isinstance(metrics_to_collect, dict)
@@ -307,7 +310,7 @@ class CmnProbe(Base.Probe):
             max_mux_interval = perf_class.get_cmn_mux_interval(cmn_index)
             self.max_mux_interval = max(self.max_mux_interval, max_mux_interval)
 
-    # pylint: disable=consider-merging-isinstance, too-many-locals
+    # pylint: disable=consider-merging-isinstance, too-many-locals, too-many-nested-blocks, too-many-boolean-expressions
     def create_schedule(self) -> None:
         """Prepares a capture schedule for either base metrics or topdown metrics
         """
@@ -342,10 +345,27 @@ class CmnProbe(Base.Probe):
 
         topdown_groups: Set[str] = set(self.topdown_metrics_to_collect.keys()) | set(self.collectable_base_metrics_for_topdown_groups.keys())
 
+        self.used_locations_for_groups: Dict[str, Set[Location]] = {}
+        self.used_locations_for_metrics: Dict[str, Set[Location]] = {}
+
         for group_name, metrics in self.metrics_to_collect.items():
             is_topdown_group: bool = group_name in topdown_groups
 
             global_only = not self.conf.capture_per_device_id
+
+            group_locations: List[Location] = list(self.user_locations_for_groups.get(group_name, ()))
+            if is_topdown_group:
+                topdown_metric_locations: List[Location] = []
+                for topdown_metric in self.topdown_metrics_to_collect.get(group_name, {}):
+                    topdown_metric_locations.extend(self.user_locations_for_metrics.get(topdown_metric, ()))
+                for location in group_locations + topdown_metric_locations:
+                    if not isinstance(location, CmnLocation):
+                        raise ValueError(
+                            "Topdown metrics only support CMN-level location filters"
+                        )
+                group_locations.extend(topdown_metric_locations)
+            group_locations_tuple = tuple(group_locations)
+            global_only_from_group = not group_locations_tuple
 
             self.group_data[group_name] = {
                 "events_values": {},
@@ -360,40 +380,120 @@ class CmnProbe(Base.Probe):
                 "restore_information": {}
             }
 
+            metric_location_overrides: Dict[str, Set[Location]] = {
+                metric: set(self.user_locations_for_metrics.get(metric, ()))
+                for metric in metrics
+            }
             for metric_name in metrics:
-                self.group_data[group_name]["original_metrics"][metric_name] = cast(
-                    Dict[
-                        Union[CmnLocation, XpLocation, PortLocation, NodeLocation],
-                        List[Union[Event, List[Event], Watchpoint, List[Watchpoint]]],
-                    ],
-                    self.database.get_schedulable_events_for_metric(
-                        metric_name, global_only
-                    ),
+                if metric_name not in self.metric_dependencies:
+                    self.metric_dependencies[metric_name] = self.database.get_metric_dependencies(metric_name)
+
+            def propagate_locations(metric_name: str) -> None:
+                for dependency in self.metric_dependencies.get(metric_name, ()):
+                    if dependency not in metric_location_overrides:
+                        continue
+                    before = len(metric_location_overrides[dependency])
+                    metric_location_overrides[dependency].update(metric_location_overrides[metric_name])
+                    if len(metric_location_overrides[dependency]) > before:
+                        propagate_locations(dependency)
+
+            for metric_name, locations in metric_location_overrides.items():
+                if locations:
+                    propagate_locations(metric_name)
+
+            for metric_name in metrics:
+                if metric_name not in self.metrics_details:
+                    self.metrics_details[metric_name] = self.database.get_metric_details(metric_name)
+                metric_details = self.metrics_details[metric_name]
+                is_port_metric = (
+                    metric_details.port_device_id is not None
+                    and metric_details.node_device_id is None
                 )
-                self.database.merge_events(
-                    self.group_data[group_name]["original_metrics"][metric_name],
-                    cast(
-                        Dict[
-                            Union[CmnLocation, XpLocation, PortLocation, NodeLocation],
-                            List[Union[Event, List[Event], Watchpoint, List[Watchpoint]]],
-                        ],
-                        self.database.get_schedulable_xp_events_for_metric(
-                            metric_name, global_only
-                        ),
-                    ),
-                )
-                self.database.merge_events(
-                    self.group_data[group_name]["original_metrics"][metric_name],
-                    cast(
-                        Dict[
-                            Union[CmnLocation, XpLocation, PortLocation, NodeLocation],
-                            List[Union[Event, List[Event], Watchpoint, List[Watchpoint]]],
-                        ],
-                        self.database.get_schedulable_watchpoints_for_metric(
-                            metric_name, global_only, platform == "linux"
-                        ),
-                    ),
-                )
+                metric_locations = metric_location_overrides.get(metric_name, set())
+                if is_port_metric:
+                    for location in metric_locations:
+                        if isinstance(location, NodeLocation):
+                            raise ValueError(
+                                f"Node location filter is not valid for port metric '{metric_name}'"
+                            )
+                    for location in group_locations_tuple:
+                        if isinstance(location, NodeLocation):
+                            raise ValueError(
+                                f"Node location filter is not valid for port metric '{metric_name}'"
+                            )
+
+                global_only_from_metric = not metric_locations
+
+                combined_global_only = global_only and global_only_from_group and global_only_from_metric
+
+                events_for_metric = self.database.get_schedulable_events_for_metric(metric_name, combined_global_only)
+                xp_events_for_metric = self.database.get_schedulable_xp_events_for_metric(metric_name, combined_global_only)
+                watchpoints_for_metric = self.database.get_schedulable_watchpoints_for_metric(metric_name, combined_global_only, platform == "linux")
+
+                self.group_data[group_name]["original_metrics"][metric_name] = cast(Dict[Union[CmnLocation, XpLocation, PortLocation, NodeLocation], List[Union[Event, List[Event], Watchpoint, List[Watchpoint]]]], events_for_metric)
+                self.database.merge_events(self.group_data[group_name]["original_metrics"][metric_name], cast(Dict[Union[CmnLocation, XpLocation, PortLocation, NodeLocation], List[Union[Event, List[Event], Watchpoint, List[Watchpoint]]]], xp_events_for_metric))
+                self.database.merge_events(self.group_data[group_name]["original_metrics"][metric_name], cast(Dict[Union[CmnLocation, XpLocation, PortLocation, NodeLocation], List[Union[Event, List[Event], Watchpoint, List[Watchpoint]]]], watchpoints_for_metric))
+
+                if not global_only_from_group or not global_only_from_metric:
+                    for location in list(self.group_data[group_name]["original_metrics"][metric_name]):
+                        if isinstance(location, CmnLocation):
+                            if not is_topdown_group:
+                                del self.group_data[group_name]["original_metrics"][metric_name][location]
+                            elif group_locations_tuple or metric_locations:
+                                passes_location = False
+                                for allowed_location in metric_locations:
+                                    if isinstance(allowed_location, CmnLocation) and location.cmn_index == allowed_location.cmn_index:
+                                        passes_location = True
+                                        self.used_locations_for_metrics.setdefault(metric_name, set()).add(allowed_location)
+                                        break
+                                for allowed_location in group_locations_tuple:
+                                    if isinstance(allowed_location, CmnLocation) and location.cmn_index == allowed_location.cmn_index:
+                                        passes_location = True
+                                        self.used_locations_for_groups.setdefault(group_name, set()).add(allowed_location)
+                                        break
+                                if not passes_location:
+                                    del self.group_data[group_name]["original_metrics"][metric_name][location]
+                        else:
+                            passes_location = False
+                            for allowed_location in metric_locations:
+                                if isinstance(allowed_location, CmnLocation) and isinstance(location, (CmnLocation, XpLocation, PortLocation, NodeLocation)) and location.cmn_index == allowed_location.cmn_index:
+                                    passes_location = True
+                                    self.used_locations_for_metrics.setdefault(metric_name, set()).add(allowed_location)
+                                    break
+                                if isinstance(allowed_location, XpLocation) and isinstance(location, (XpLocation, PortLocation, NodeLocation)) and location.cmn_index == allowed_location.cmn_index and location.xp_id == allowed_location.xp_id:
+                                    passes_location = True
+                                    self.used_locations_for_metrics.setdefault(metric_name, set()).add(allowed_location)
+                                    break
+                                if isinstance(allowed_location, PortLocation) and isinstance(location, (PortLocation, NodeLocation)) and location.cmn_index == allowed_location.cmn_index and location.xp_id == allowed_location.xp_id and location.port == allowed_location.port:
+                                    passes_location = True
+                                    self.used_locations_for_metrics.setdefault(metric_name, set()).add(allowed_location)
+                                    break
+                                if isinstance(allowed_location, NodeLocation) and isinstance(location, NodeLocation) and location.cmn_index == allowed_location.cmn_index and location.xp_id == allowed_location.xp_id and location.port == allowed_location.port and location.node_id == allowed_location.node_id:
+                                    passes_location = True
+                                    self.used_locations_for_metrics.setdefault(metric_name, set()).add(allowed_location)
+                                    break
+                            for allowed_location in group_locations_tuple:
+                                if isinstance(allowed_location, CmnLocation) and isinstance(location, (CmnLocation, XpLocation, PortLocation, NodeLocation)) and location.cmn_index == allowed_location.cmn_index:
+                                    passes_location = True
+                                    self.used_locations_for_groups.setdefault(group_name, set()).add(allowed_location)
+                                    break
+                                if isinstance(allowed_location, XpLocation) and isinstance(location, (XpLocation, PortLocation, NodeLocation)) and location.cmn_index == allowed_location.cmn_index and location.xp_id == allowed_location.xp_id:
+                                    passes_location = True
+                                    self.used_locations_for_groups.setdefault(group_name, set()).add(allowed_location)
+                                    break
+                                if isinstance(allowed_location, PortLocation) and isinstance(location, (PortLocation, NodeLocation)) and location.cmn_index == allowed_location.cmn_index and location.xp_id == allowed_location.xp_id and location.port == allowed_location.port:
+                                    passes_location = True
+                                    self.used_locations_for_groups.setdefault(group_name, set()).add(allowed_location)
+                                    break
+                                if isinstance(allowed_location, NodeLocation) and isinstance(location, NodeLocation) and location.cmn_index == allowed_location.cmn_index and location.xp_id == allowed_location.xp_id and location.port == allowed_location.port and location.node_id == allowed_location.node_id:
+                                    passes_location = True
+                                    self.used_locations_for_groups.setdefault(group_name, set()).add(allowed_location)
+                                    break
+                            if not passes_location:
+                                del self.group_data[group_name]["original_metrics"][metric_name][location]
+                        if len(self.group_data[group_name]["original_metrics"][metric_name]) == 0:
+                            logging.error("Metric %s in group %s left with no location due to filtering", metric_name, group_name)
+                            raise ValueError(f"Metric {metric_name} in group {group_name} left with no location due to filtering")
 
             # Prepare events for perf
             if self.conf.collect_by == CollectBy.METRIC:
@@ -465,6 +565,19 @@ class CmnProbe(Base.Probe):
             scheduler = MultiCmnScheduler(self.group_data[group_name]["events_for_perf"], cmn_info_map)
             self.group_data[group_name]["scheduler"] = scheduler
             self.group_data[group_name]["optimized_events_for_perf"] = tuple(scheduler.get_optimized_event_groups())
+
+        for group_name, metrics in self.metrics_to_collect.items():
+            group_locations_difference: Set[Location] = set(self.user_locations_for_groups.get(group_name, tuple()))
+            if group_name in self.used_locations_for_groups:
+                group_locations_difference.difference_update(self.used_locations_for_groups[group_name])
+            for location in group_locations_difference:
+                logging.warning("Unused location: %s, for group: %s", location, group_name)
+            for metric_name in metrics:
+                metric_locations_difference: Set[Location] = set(self.user_locations_for_metrics.get(metric_name, tuple()))
+                if metric_name in self.used_locations_for_metrics:
+                    metric_locations_difference.difference_update(self.used_locations_for_metrics[metric_name])
+                for location in metric_locations_difference:
+                    logging.warning("Unused location: %s, for metric: %s", location, metric_name)
 
         self.used_cmns = tuple(sorted(used_cmns))
 
@@ -1285,6 +1398,15 @@ class CmnProbe(Base.Probe):
                     device_groups.setdefault(key, {})[metric_name] = metric_values
 
                 for device_group in device_groups.values():
+                    global_exists = False
+                    for metric in device_group.values():
+                        for location in metric:
+                            if isinstance(location, CmnLocation):
+                                global_exists = True
+                                break
+                        if global_exists:
+                            break
+
                     # Node Locations
                     node_locations: Set[NodeLocation] = set()
                     for metric in device_group.values():
@@ -1323,7 +1445,9 @@ class CmnProbe(Base.Probe):
                     port_location = next(port_iterator, None)
                     xp_location = next(xp_iterator, None)
 
-                    columns: List[Set[Location]] = [{CmnLocation(cmn_index=cmn_index)}]
+                    columns: List[Set[Location]] = []
+                    if global_exists:
+                        columns.append({CmnLocation(cmn_index=cmn_index)})
 
                     # Merge locations
                     while (

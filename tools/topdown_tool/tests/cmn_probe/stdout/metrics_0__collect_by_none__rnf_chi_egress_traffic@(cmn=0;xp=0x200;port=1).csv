@@ -1,0 +1,2 @@
+run,time,level,stage,group,metric,node,nodeid,value,interrupted,units
+1,,,,RNF_CHI_Egress_Traffic,cmn_rnf_txreq_rate,XP 0x200 Port #1,516,1450.580521631818,,Requests per 1K clks

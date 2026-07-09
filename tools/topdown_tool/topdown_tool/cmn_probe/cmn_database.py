@@ -8,12 +8,13 @@ This module provides the database for CMN. It parses CMN specification JSON file
 methods to retrieve information relevant for capture.
 """
 
+from collections import Counter
 from enum import Enum
 from itertools import groupby
 from operator import itemgetter
 from re import sub
 from sqlite3 import connect
-from typing import Dict, List, Optional, Sequence, Set, Tuple, Union
+from typing import Dict, List, Optional, Sequence, Set, Tuple, Type, Union
 
 from topdown_tool.cmn_probe.common import (
     CmnLocation,
@@ -1708,6 +1709,123 @@ class CmnDatabase:
 
         return tuple(result)
 
+    def get_xp_port_of_node(self, cmn_index: int, node_id: int) -> Tuple[int, int]:
+        """Returns XP ID and Port for a given Node ID
+
+        Args:
+            cmn_index (int): CMN Index
+            node_id (int): Node ID
+
+        Returns:
+            Tuple[int, int]: XP ID, Port
+        """
+        statement = self.db_connection.execute(
+            """
+            SELECT
+                port,
+                crosspoints.node_id
+            FROM
+                nodes
+                INNER JOIN ports ON port_id = ports.id
+                INNER JOIN crosspoints ON xp_id = crosspoints.id
+            WHERE
+                cmn_id = ?
+                AND nodes.node_id = ?
+        """,
+            (cmn_index, node_id),
+        )
+        row = statement.fetchone()
+        return row[1], row[0]
+
+    @staticmethod
+    def discard_locations(seq: Sequence[str]) -> Tuple[str, ...]:
+        """Remove location filters from metric or group names.
+
+        Args:
+            seq (Sequence[str]): Names that may include ``@(...)`` location filters
+
+        Returns:
+            Tuple[str, ...]: Names without any location filter suffix
+        """
+        return tuple(item.split("@")[0] for item in seq)
+
+    def extract_locations(self, seq: Optional[Sequence[str]]) -> Dict[str, Tuple[Location, ...]]:
+        """Parse location filters attached to metric or group names.
+
+        Args:
+            seq (Optional[Sequence[str]]): Names that may include ``@(...)`` location filters
+
+        Returns:
+            Dict[str, Tuple[Location, ...]]: Mapping from base name to parsed locations
+        """
+        result: Dict[str, Tuple[Location, ...]] = {}
+        if seq is None:
+            return result
+        for item in seq:
+            name_and_locations = item.split("@", 1)
+            if len(name_and_locations) != 2:
+                continue
+            name, locations_str = name_and_locations
+            parsed_locations = []
+            if locations_str.startswith("(("):
+                split_locations: List[str] = locations_str.split(");(")
+                split_locations[0] = split_locations[0].lstrip("(")
+                split_locations[-1] = split_locations[-1].rstrip(")")
+            else:
+                split_locations = [locations_str.strip("()")]
+
+            for location_str in split_locations:
+                location: Dict[str, int] = {}
+                for location_item in location_str.split(";"):
+                    key, value = location_item.split("=", 1)
+                    if key in location:
+                        raise ValueError(
+                            f"Location must not contain duplicated keys. Duplicated key: {key}, in location string: {location_str}"
+                        )
+                    location[key] = int(value, 0)
+                if "CMN" not in location:
+                    raise ValueError(f"Location must contain CMN index: {location_str}")
+                if location["CMN"] not in self.cmn_indices:
+                    raise ValueError(
+                        f'CMN index ({location["CMN"]}) outside allowed indices ({", ".join(map(str, self.cmn_indices))}) in location string: {location_str}'
+                    )
+
+                location_type: Type[Location]
+                if "Node" in location:
+                    expected_length = 2
+                    location_type = NodeLocation
+                elif "XP" in location:
+                    if "Port" in location:
+                        expected_length = 3
+                        location_type = PortLocation
+                    else:
+                        expected_length = 2
+                        location_type = XpLocation
+                else:
+                    expected_length = 1
+                    location_type = CmnLocation
+
+                if len(location) != expected_length:
+                    raise ValueError(f"Malformed location string: {location_str}")
+
+                if location_type == CmnLocation:
+                    new_location: Location = CmnLocation(location["CMN"])
+                elif location_type == XpLocation:
+                    new_location = XpLocation(location["CMN"], location["XP"])
+                elif location_type == PortLocation:
+                    new_location = PortLocation(location["CMN"], location["XP"], location["Port"])
+                else:
+                    try:
+                        xp_id, port = self.get_xp_port_of_node(location["CMN"], location["Node"])
+                    except TypeError as ex:
+                        raise RuntimeError(
+                            f"CMN #{location['CMN']} Node 0x{location['Node']:X} doesn't have XP or Port assigned"
+                        ) from ex
+                    new_location = NodeLocation(location["CMN"], xp_id, port, location["Node"])
+                parsed_locations.append(new_location)
+            result[name] = tuple(parsed_locations)
+        return result
+
     def get_collectable_metrics(self, metrics: Sequence[str]) -> Dict[str, Tuple[str, ...]]:
         """Extracts metrics that are possible to collect on a CMN and assigns each collectable
         metric to a group
@@ -1719,6 +1837,10 @@ class CmnDatabase:
             Dict[str, Tuple[str, ...]]: a mapping between group name and a set of metrics names that
             are possible to collect from the original set of metrics names passed to the function
         """
+        metrics = self.discard_locations(metrics)
+        duplicated_metrics = [item for item, count in Counter(metrics).items() if count > 1]
+        if duplicated_metrics:
+            raise ValueError(f'Duplicated metrics names: {", ".join(duplicated_metrics)}')
         collectable_groups: Dict[str, List[str]] = {}
         placeholders: str = ", ".join(["?"] * len(metrics))
         params: List[Union[str, int]] = list(metrics)
@@ -1773,6 +1895,10 @@ class CmnDatabase:
             Dict[str, Tuple[str, ...]]: a mapping between group name and a set of all metrics names
             that are possible to collect
         """
+        groups = self.discard_locations(groups)
+        duplicated_groups = [item for item, count in Counter(groups).items() if count > 1]
+        if duplicated_groups:
+            raise ValueError(f'Duplicated groups names: {", ".join(duplicated_groups)}')
         collectable_groups: Dict[str, List[str]] = {}
         placeholders: str = ", ".join(["?"] * len(groups))
         params: List[Union[str, int]] = list(groups)
@@ -1980,6 +2106,17 @@ class CmnDatabase:
             display flag. Second element of the tuple is a mapping between topdown group name and
             required base metrics to collect to calcaulte topdown metric.
         """
+        if metrics is not None:
+            metrics = self.discard_locations(metrics)
+            duplicated_metrics = [item for item, count in Counter(metrics).items() if count > 1]
+            if duplicated_metrics:
+                raise ValueError(f'Duplicated metrics names: {", ".join(duplicated_metrics)}')
+        if groups is not None:
+            groups = self.discard_locations(groups)
+            duplicated_groups = [item for item, count in Counter(groups).items() if count > 1]
+            if duplicated_groups:
+                raise ValueError(f'Duplicated groups names: {", ".join(duplicated_groups)}')
+
         result_topdown_metrics: Dict[str, Dict[str, bool]] = {}
         result_base_metrics: Dict[str, Tuple[str, ...]] = {}
         last_group_name: Optional[str] = None
@@ -2072,6 +2209,11 @@ class CmnDatabase:
         return result_topdown_metrics, result_base_metrics
 
     def get_collectable_base_metrics_for_topdown_group(self, groups: Optional[Sequence[str]] = None) -> Dict[str, Tuple[str, ...]]:
+        if groups is not None:
+            groups = self.discard_locations(groups)
+            duplicated_groups = [item for item, count in Counter(groups).items() if count > 1]
+            if duplicated_groups:
+                raise ValueError(f'Duplicated groups names: {", ".join(duplicated_groups)}')
         groups_condition: str
         params: List[Union[str, int]]
         if groups is None:

@@ -186,6 +186,21 @@ CMN-700 at index 0
   topdown-tool --probe CMN --cmn-indices 0 --cmn-metric-groups HNF_Ingress_Traffic -- ./a.out
   ```
 
+## Location filters
+
+You can scope metrics or groups to specific CMN locations by appending a filter after the name:
+`<metric-or-group>@(<filter>)` or `<metric-or-group>@((<filter>);(<filter>))`.
+
+Allowed filters (4 variants):
+- `CMN=...` -> Wildcard for all applicable nodes/ports (depending on node vs port metric). Example: `(CMN=0)`
+- `CMN=...;XP=...` -> Wildcard for all applicable nodes/ports at that XP. Example: `(CMN=0;XP=0x88)`
+- `CMN=...;XP=...;Port=...` -> One specific port for port metrics; can match more than one node for node metrics behind CAL. Example: `(CMN=0;XP=0x88;Port=1)`
+- `CMN=...;Node=...` -> One specific node (node metrics only; not valid for port metrics). Example: `(CMN=0;Node=0x89)`
+
+Filter format examples:
+- Single location: `@(CMN=0;XP=0x88)`
+- Multiple locations: `@((CMN=0;XP=0x40;Port=1);(CMN=0;XP=0x68;Port=0))`
+
 ## Accuracy and detail
 
 - Control multiplexing grouping (default: metric):
