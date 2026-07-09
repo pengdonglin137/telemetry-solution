@@ -96,7 +96,7 @@ Notes:
 
 - List metric groups; add descriptions:
   ```sh
-  topdown-tool --probe CMN --cmn-mesh-layout-input cmn_mesh.json --cmn-list-groups --cmn-print-descriptions
+  topdown-tool --probe CMN --cmn-mesh-layout-input cmn_mesh.json --cmn-list-groups --cmn-descriptions
   ```
 
 - List metric groups for specific devices only (dash "-" and underscore "_" are ignored when choosing device, in this and subsequent options, HNI = HN-I = HN_I):
@@ -106,7 +106,7 @@ Notes:
 
 - List metrics (add descriptions and sample events):
   ```sh
-  topdown-tool --probe CMN --cmn-mesh-layout-input cmn_mesh.json --cmn-list-metrics --cmn-print-descriptions --cmn-show-sample-events
+  topdown-tool --probe CMN --cmn-mesh-layout-input cmn_mesh.json --cmn-list-metrics --cmn-descriptions --cmn-show-sample-events
   ```
 
 - List metrics for specific devices only:
@@ -533,7 +533,7 @@ Groups do not change perf encoding. They only describe how events and metrics sh
 - `--cmn-generate-csv`: `metrics`, `events`, or both.
   If `--csv-output-path` is omitted while CSV generation is enabled, it defaults to `tdt_out`.
 - `--cmn-list`, `--cmn-list-devices`, `--cmn-list-groups`, `--cmn-list-metrics`, `--cmn-list-events`: Listing/inspection mode (skips capture).
-- `--cmn-print-descriptions`, `--cmn-show-sample-events`: Expand listing output with descriptions and sample events.
+- `--cmn-descriptions`, `--cmn-show-sample-events`: Expand listing output with descriptions and sample events.
 
 ### Accuracy and detail
 

@@ -134,7 +134,11 @@ class CmnProbeFactoryCliConfigBuilder(
             help="Capture groups for multiplied amount of minimum necessary time",
         )
         parser.add_argument(
-            "--cmn-print-descriptions", action="store_true", help="Show group/metric descriptions"
+            "--cmn-descriptions",
+            "--cmn-print-descriptions",
+            action="store_true",
+            dest="cmn_print_descriptions",
+            help="Show group/metric descriptions"
         )
         parser.add_argument(
             "--cmn-show-sample-events", action="store_true", help="Show sample events for metrics"
