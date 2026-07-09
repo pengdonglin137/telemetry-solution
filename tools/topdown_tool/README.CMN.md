@@ -69,7 +69,7 @@ CMN topology discovery happens through `cmn_discover.py` from [cmn-tools](https:
 Generate a layout once as root:
 
 ```sh
-sudo topdown-tool --probe CMN --cmn-mesh-layout-output cmn_mesh.json --cmn-list
+sudo "$(command -v topdown-tool)" --probe CMN --cmn-mesh-layout-output cmn_mesh.json --cmn-list
 ```
 
 Reuse the saved layout with only perf permissions:
@@ -86,42 +86,42 @@ Notes:
 
 - List detected CMN versions and indices:
   ```sh
-  topdown-tool --probe CMN --cmn-list
+  topdown-tool --probe CMN --cmn-mesh-layout-input cmn_mesh.json --cmn-list
   ```
 
 - List CMN devices:
   ```sh
-  topdown-tool --probe CMN --cmn-list-devices
+  topdown-tool --probe CMN --cmn-mesh-layout-input cmn_mesh.json --cmn-list-devices
   ```
 
 - List metric groups; add descriptions:
   ```sh
-  topdown-tool --probe CMN --cmn-list-groups --cmn-print-descriptions
+  topdown-tool --probe CMN --cmn-mesh-layout-input cmn_mesh.json --cmn-list-groups --cmn-print-descriptions
   ```
 
 - List metric groups for specific devices only (dash "-" and underscore "_" are ignored when choosing device, in this and subsequent options, HNI = HN-I = HN_I):
   ```sh
-  topdown-tool --probe CMN --cmn-list-groups HNI,RNI
+  topdown-tool --probe CMN --cmn-mesh-layout-input cmn_mesh.json --cmn-list-groups HNI,RNI
   ```
 
 - List metrics (add descriptions and sample events):
   ```sh
-  topdown-tool --probe CMN --cmn-list-metrics --cmn-print-descriptions --cmn-show-sample-events
+  topdown-tool --probe CMN --cmn-mesh-layout-input cmn_mesh.json --cmn-list-metrics --cmn-print-descriptions --cmn-show-sample-events
   ```
 
 - List metrics for specific devices only:
   ```sh
-  topdown-tool --probe CMN --cmn-list-metrics HNI,RNI
+  topdown-tool --probe CMN --cmn-mesh-layout-input cmn_mesh.json --cmn-list-metrics HNI,RNI
   ```
 
 - List PMU events and watchpoints referenced by the spec:
   ```sh
-  topdown-tool --probe CMN --cmn-list-events
+  topdown-tool --probe CMN --cmn-mesh-layout-input cmn_mesh.json --cmn-list-events
   ```
 
 - List PMU events and watchpoints referenced by the spec for specific devices only:
   ```sh
-  topdown-tool --probe CMN --cmn-list-events HNI,RNI
+  topdown-tool --probe CMN --cmn-mesh-layout-input cmn_mesh.json --cmn-list-events HNI,RNI
   ```
 
 ## Running workloads
@@ -130,13 +130,13 @@ Use `--` to separate tool options from your command.
 
 - Run a command:
   ```sh
-  topdown-tool --probe CMN -- ./a.out
+  topdown-tool --probe CMN --cmn-mesh-layout-input cmn_mesh.json -- ./a.out
   ```
 
 By default, metrics from the Arm topdown performance analysis methodology will be selected, and grouped by stage:
 
 ```sh
-$ topdown-tool --probe CMN -- ./a.out
+$ topdown-tool --probe CMN --cmn-mesh-layout-input cmn_mesh.json -- ./a.out
 Monitoring command: a.out. Hit Ctrl-C to stop.
 Run 1
 CMN-700 at index 0
@@ -173,17 +173,17 @@ CMN-700 at index 0
 
 - Collect specific metrics (comma-separated, case-insensitive):
   ```sh
-  topdown-tool --probe CMN --cmn-metrics cmn_hnf_atomic_data_fwd_rate -- ./a.out
+  topdown-tool --probe CMN --cmn-mesh-layout-input cmn_mesh.json --cmn-metrics cmn_hnf_atomic_data_fwd_rate -- ./a.out
   ```
 
 - Collect specific metric groups (comma-separated, case-insensitive):
   ```sh
-  topdown-tool --probe CMN --cmn-metric-group HNF_Ingress_Traffic -- ./a.out
+  topdown-tool --probe CMN --cmn-mesh-layout-input cmn_mesh.json --cmn-metric-group HNF_Ingress_Traffic -- ./a.out
   ```
 
 - Restrict counting to specific CMNs:
   ```sh
-  topdown-tool --probe CMN --cmn-indices 0 --cmn-metric-group HNF_Ingress_Traffic -- ./a.out
+  topdown-tool --probe CMN --cmn-mesh-layout-input cmn_mesh.json --cmn-indices 0 --cmn-metric-group HNF_Ingress_Traffic -- ./a.out
   ```
 
 ## Location filters
@@ -205,12 +205,12 @@ Filter format examples:
 
 - Control multiplexing grouping (default: metric):
   ```sh
-  topdown-tool --probe CMN --cmn-collect-by none --cmn-metric-group HNF_Ingress_Traffic -- ./a.out
+  topdown-tool --probe CMN --cmn-mesh-layout-input cmn_mesh.json --cmn-collect-by none --cmn-metric-group HNF_Ingress_Traffic -- ./a.out
   ```
   `--cmn-collect-by` accepts `none` or `metric`. Grouping by metric keeps related events in the same time slice when multiplexing.
 - Collect per-node/device metrics:
   ```sh
-  topdown-tool --probe CMN --cmn-capture-per-device-id --cmn-metric-group HNF_Ingress_Traffic -- ./a.out
+  topdown-tool --probe CMN --cmn-mesh-layout-input cmn_mesh.json --cmn-capture-per-device-id --cmn-metric-group HNF_Ingress_Traffic -- ./a.out
   ```
 
 ## CSV output
@@ -235,15 +235,15 @@ CSV is the easiest way to post-process both metrics and raw events.
 Examples:
 - Metrics:
   ```sh
-  topdown-tool --probe CMN --csv-output-path out --cmn-generate-csv metrics -- sleep 5
+  topdown-tool --probe CMN --cmn-mesh-layout-input cmn_mesh.json --csv-output-path out --cmn-generate-csv metrics -- sleep 5
   ```
 - Events:
   ```sh
-  topdown-tool --probe CMN --csv-output-path out --cmn-generate-csv events -- sleep 5
+  topdown-tool --probe CMN --cmn-mesh-layout-input cmn_mesh.json --csv-output-path out --cmn-generate-csv events -- sleep 5
   ```
 - Both metrics and events:
   ```sh
-  topdown-tool --probe CMN --csv-output-path out --cmn-generate-csv metrics,events -- sleep 5
+  topdown-tool --probe CMN --cmn-mesh-layout-input cmn_mesh.json --csv-output-path out --cmn-generate-csv metrics,events -- sleep 5
   ```
 
 Notes:
@@ -334,7 +334,7 @@ HNS_SLC_Effectiveness,cmn_hns_slc_alloc_invalid_way_rate,PMU_HNS_SLC_FILL_INVALI
 
 - Override the packaged spec:
   ```sh
-  topdown-tool --probe CMN --cmn-specification /path/to/custom_cmn.json -- ./a.out
+  topdown-tool --probe CMN --cmn-mesh-layout-input cmn_mesh.json --cmn-specification /path/to/custom_cmn.json -- ./a.out
   ```
   (The option can be repeated to supply multiple CMN specs.)
 - Validate a spec:

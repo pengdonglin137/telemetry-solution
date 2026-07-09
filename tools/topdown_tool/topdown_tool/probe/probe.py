@@ -368,7 +368,7 @@ def load_probe_factories() -> Sequence[ProbeFactory[object]]:
     if hasattr(eps, "select"):
         entries = eps.select(group="topdown_tool.probe_factories")
     elif hasattr(eps, "get"):
-        # For Python 3.9, entries are organized as a dict keyed by group
+        # Fallback for older entry-points APIs organized as a dict keyed by group
         entries = eps.get("topdown_tool.probe_factories", tuple())
     else:
         return factory_classes

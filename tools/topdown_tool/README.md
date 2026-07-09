@@ -14,11 +14,14 @@ Platform prerequisites quickstart:
 
 ## Linux
 
-The following commands target Ubuntu 22.04 LTS and newer. On other Linux distributions, install the equivalent packages (Git, Python 3 with venv and pip, and inotify-tools) using your distribution’s package manager.
+The following commands target Ubuntu 22.04 LTS and newer.
 ```sh
 sudo apt-get update
 sudo apt-get install -y git python3 python3-venv python3-pip inotify-tools
 ```
+
+On other Linux distributions, install the equivalent packages (Git, Python 3 with venv and pip, and inotify-tools) using your distribution’s package manager.
+If your distribution's default `python3` is outside the supported Python range, install a supported Python version and use that interpreter to create the virtual environment.
 
 ## Windows
 ```sh
@@ -60,6 +63,11 @@ python3 -m pip install .
 Verify:
 ```sh
 topdown-tool --help
+```
+
+If you need to run a virtualenv-installed `topdown-tool` with `sudo`, resolve the script path before invoking `sudo`:
+```sh
+sudo "$(command -v topdown-tool)" --help
 ```
 
 > [!note] Linux
@@ -347,8 +355,13 @@ In some cases, this can prevent all events within a single metric from being sch
 * Use a metal instance.
 * It is possible to schedule events within a metric independently by specifying `--cpu-collect-by=none`, although note that this can lead to unusual/invalid data for all but the most homogeneous workloads.
 
-### Command not found after user-local install
-If `topdown-tool` command is not found, then ensure that the directory for `topdown-tool` binary is available on PATH. See details in chapter [Method 2: User-local install (no virtualenv)](#method-2-user-local-install-no-virtualenv).
+### Command not found
+If the `topdown-tool` command is not found after a user-local install, ensure that the directory for the `topdown-tool` binary is available on PATH. See details in chapter [Method 2: User-local install (no virtualenv)](#method-2-user-local-install-no-virtualenv).
+
+If `sudo topdown-tool ...` fails after a virtual environment install, resolve the script path before invoking `sudo`:
+```sh
+sudo "$(command -v topdown-tool)" ...
+```
 
 ## Linux
 
