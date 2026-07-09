@@ -11,12 +11,18 @@ workflow:
     - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
     - if: $CI_PIPELINE_SOURCE == "web"
 
+include:
+  - project: "software/upe/valetudo/codex-gitlab-review"
+    ref: "main"
+    file: "/.gitlab/review-template.yml"
+
 stages:
   - pre-check
   - docker-check
   - prepare
   - build-and-test
   - release
+  - review
 
 ###
 # Prepare: Docker build
