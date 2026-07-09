@@ -598,7 +598,7 @@ def main(
     probes: List[Probe] = []
     try:
         for factory in selected_factories:
-            probes.extend(factory.create(capture_data, base_csv_dir))
+            probes.extend(factory.create(capture_data))
     except ArgsError as e:
         handle_exception(
             exception=e, log_warning_str=get_warning_text(factory), print_additional_error_str=False
