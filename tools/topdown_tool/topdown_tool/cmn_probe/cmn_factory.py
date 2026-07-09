@@ -31,7 +31,7 @@ from topdown_tool.cmn_probe.windows_perf_parser import WindowsPerfParser
 from topdown_tool.common import ArgsError, range_decode
 from topdown_tool.common.telemetry_paths import (
     telemetry_probe_mapping_file,
-    telemetry_probe_metrics_dir,
+    telemetry_probe_specifications_dir,
     telemetry_probe_schemas_dir,
 )
 from topdown_tool.perf import PerfFactory
@@ -235,7 +235,7 @@ class CmnProbeFactory(Base.ProbeFactory):
     CmnProbe instances configured with the appropriate telemetry specification.
     """
 
-    METRICS_DIR = str(telemetry_probe_metrics_dir("cmn"))
+    METRICS_DIR = str(telemetry_probe_specifications_dir("cmn"))
     SCHEMAS_DIR = str(telemetry_probe_schemas_dir("cmn"))
     MAPPING_FILE = str(telemetry_probe_mapping_file("cmn"))
 

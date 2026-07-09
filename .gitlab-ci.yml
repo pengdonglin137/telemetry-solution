@@ -300,7 +300,7 @@ validate-cpu-specs:
       python3 -m venv .venv
       source .venv/bin/activate
       python -m pip install tools/topdown_tool
-      validate-cpu-spec --spec-dir data/pmu/cpu/metrics --schema-dir data/pmu/cpu/schemas
+      validate-cpu-spec --spec-dir data/pmu/cpu/specifications --schema-dir data/pmu/cpu/schemas
 
 perf-json-generator:
   extends: .build-base
@@ -317,7 +317,7 @@ perf-json-generator:
       pushd linux
       git sparse-checkout add tools/perf
       popd
-      find $WORKSPACE/data/pmu/cpu/metrics/* -name '*.json' | grep -Ev 'schema|-sme2-' | xargs -I '{}' ./generate.py linux/tools/perf --telemetry-files '{}'
+      find $WORKSPACE/data/pmu/cpu/specifications/* -name '*.json' | grep -Ev 'schema|-sme2-' | xargs -I '{}' ./generate.py linux/tools/perf --telemetry-files '{}'
       pushd linux
       git diff --name-only > changed_files.txt
       git ls-files --others --exclude-standard >> changed_files.txt

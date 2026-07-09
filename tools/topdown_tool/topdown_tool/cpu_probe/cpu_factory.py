@@ -43,7 +43,7 @@ from rich.table import Table
 from topdown_tool.common import ArgsError, range_decode, unwrap
 from topdown_tool.common.telemetry_paths import (
     telemetry_probe_mapping_file,
-    telemetry_probe_metrics_dir,
+    telemetry_probe_specifications_dir,
     telemetry_probe_schemas_dir,
 )
 from topdown_tool.cpu_probe.common import (
@@ -383,7 +383,7 @@ class CpuProbeFactory(Base.ProbeFactory[CpuProbeFactoryConfig]):
             probes = factory.create(capture_data=True)
     """
 
-    METRICS_DIR = str(telemetry_probe_metrics_dir("cpu"))
+    METRICS_DIR = str(telemetry_probe_specifications_dir("cpu"))
     SCHEMAS_DIR = str(telemetry_probe_schemas_dir("cpu"))
     MAPPING_FILE = str(telemetry_probe_mapping_file("cpu"))
 

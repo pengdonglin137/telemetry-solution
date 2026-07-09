@@ -35,9 +35,9 @@ def telemetry_root_dir() -> Path:
     )
 
 
-def telemetry_probe_metrics_dir(probe_name: str) -> Path:
-    """Return canonical metrics directory for a probe."""
-    return telemetry_root_dir() / probe_name.lower() / "metrics"
+def telemetry_probe_specifications_dir(probe_name: str) -> Path:
+    """Return canonical specifications directory for a probe."""
+    return telemetry_root_dir() / probe_name.lower() / "specifications"
 
 
 def telemetry_probe_schemas_dir(probe_name: str) -> Path:

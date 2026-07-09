@@ -325,7 +325,7 @@ HNS_SLC_Effectiveness,cmn_hns_slc_alloc_invalid_way_rate,PMU_HNS_SLC_FILL_INVALI
   ```
 - Or validate a directory:
   ```sh
-  validate-cmn-spec --spec-dir data/pmu/cmn/metrics --schema-dir data/pmu/cmn/schemas
+  validate-cmn-spec --spec-dir data/pmu/cmn/specifications --schema-dir data/pmu/cmn/schemas
   ```
 
 ## CMN Telemetry JSON Shape

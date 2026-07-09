@@ -11,7 +11,7 @@ import topdown_tool.cmn_probe.cmn_probe as cmn_probe_module
 from topdown_tool.cmn_probe.cmn_database import CmnDatabase
 from topdown_tool.cmn_probe.cmn_probe import CmnProbe
 from topdown_tool.cmn_probe.common import CmnLocation, CmnProbeFactoryConfig
-from topdown_tool.common.telemetry_paths import telemetry_probe_metrics_dir
+from topdown_tool.common.telemetry_paths import telemetry_probe_specifications_dir
 from topdown_tool.perf.mux_interval import MuxIntervalRequest, mux_interval_path
 from topdown_tool.perf.windows_perf import WindowsPerf
 
@@ -81,7 +81,7 @@ def cmn_700_db() -> CmnDatabase:
     fixtures_dir = base_dir / "fixtures"
     with (fixtures_dir / "topology.json").open(encoding="utf-8") as f:
         topology_json = load(f)
-    with (telemetry_probe_metrics_dir("cmn") / "cmn_700_r0p0_pmu.json").open(
+    with (telemetry_probe_specifications_dir("cmn") / "cmn_700_r0p0_pmu.json").open(
         encoding="utf-8"
     ) as f:
         specification_json = load(f)
@@ -155,7 +155,7 @@ def test_start_capture_refreshes_cmn_mux_interval_before_thread_func(
     fixtures_dir = base_dir / "fixtures"
     with (fixtures_dir / "topology.json").open(encoding="utf-8") as f:
         topology_json = load(f)
-    with (telemetry_probe_metrics_dir("cmn") / "cmn_700_r0p0_pmu.json").open(
+    with (telemetry_probe_specifications_dir("cmn") / "cmn_700_r0p0_pmu.json").open(
         encoding="utf-8"
     ) as f:
         specification_json = load(f)

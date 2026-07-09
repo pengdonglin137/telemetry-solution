@@ -48,7 +48,7 @@ config:
   topdown:
     cpu_config:
       spec_overrides:
-        - "/path/to/metrics/neoverse-n1.json"
+        - "/path/to/specifications/neoverse-n1.json"
       metric_group: ["frontend"]
       stages: [1, 2]
       generate_csv: ["metrics"]
