@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2025-2026 Arm Limited
-"""Public entry points for interacting with Topdown telemetry probes.
+"""Public entry points for interacting with Arm Top-Down tool telemetry probes.
 
 The package surface mirrors the canonical probe interfaces and exposes helpers
 for working with optional devlib targets when embedding Arm Top-Down tool in

@@ -92,8 +92,7 @@ include = ["topdown_tool*"]
 
 [tool.setuptools.package-data]
 topdown_tool = [
-  "data/pmu/cpu/**/*.json",
-  "data/pmu/cmn/**/*.json",
+  "data/pmu/**/*.json",
   "cmn_probe/cmn-tools/**/*.json",
   "cmn_probe/cmn-tools/**/*.csv",
   "cmn_probe/cmn-tools/**/*.regdefs"

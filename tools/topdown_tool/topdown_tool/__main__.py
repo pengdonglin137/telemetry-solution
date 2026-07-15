@@ -207,7 +207,7 @@ def extend_arg_parser(
         metavar="MS",
         help=(
             "Default perf event mux interval in milliseconds for probes without "
-            "their own interval."
+            "their own interval. If omitted, probe and platform defaults are used."
         ),
     )
     parser.add_argument(
