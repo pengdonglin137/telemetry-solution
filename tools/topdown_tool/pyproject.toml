@@ -82,7 +82,7 @@ editable_wheel = "topdown_tool.build_info.EditableWheelWithBuildInfo"
 
 [tool.mypy]
 python_version = "3.10"
-exclude = ["^\\.venv/.*", "^venv", "pmu_discovery", "^tests/"]
+exclude = ["^\\.venv/.*", "^venv", "pmu_discovery", "^tests/", "^topdown_tool/cmn_probe/cmn-tools/"]
 check_untyped_defs = true
 disallow_untyped_defs = true
 
@@ -113,4 +113,4 @@ filterwarnings = [
 ]
 
 [tool.check-wheel-contents]
-ignore = ["W002"]
+ignore = ["W002", "W004"]
