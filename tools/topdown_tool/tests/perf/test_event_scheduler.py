@@ -1,8 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2025 Arm Limited
 
+import json
+import os
+import subprocess
+import sys
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
+
 import pytest
 from topdown_tool.cpu_probe.common import CollectBy
 from topdown_tool.perf.event_scheduler import (
@@ -262,6 +267,80 @@ def test_greedy_merge_metric_optimization():
     expected = {e1, e2, e3}
     assert len(optimized) == 1
     assert set(optimized[0]) == expected
+
+
+def test_metric_schedule_is_stable_across_hash_seeds():
+    script = """
+import json
+from dataclasses import dataclass
+
+from topdown_tool.cpu_probe.common import CollectBy
+from topdown_tool.perf import PerfEvent
+from topdown_tool.perf.event_scheduler import EventScheduler
+
+
+@dataclass(frozen=True, order=True)
+class OrderedEvent(PerfEvent):
+    name: str
+
+    def perf_name(self) -> str:
+        return self.name
+
+
+events = {name: OrderedEvent(name) for name in ("A", "B", "C", "D")}
+metrics = (
+    (events["A"], events["B"]),
+    (events["B"], events["C"]),
+    (events["D"],),
+)
+scheduler = EventScheduler([metrics], CollectBy.METRIC, max_events=3)
+print(json.dumps([[event.name for event in group] for group in scheduler.optimized_event_groups]))
+"""
+    expected = [["A", "B", "C"], ["D"]]
+
+    schedules = []
+    # Python selects the hash seed at interpreter startup, so each seed needs a new process.
+    for hash_seed in ("1", "3", "4"):
+        env = os.environ.copy()
+        env["PYTHONHASHSEED"] = hash_seed
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            check=True,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        schedules.append(json.loads(result.stdout))
+
+    assert all(schedule == expected for schedule in schedules)
+
+
+def test_metric_schedule_deduplicates_without_losing_input_order():
+    e1 = make_event("E1")
+    e2 = make_event("E2")
+    e3 = make_event("E3")
+    e4 = make_event("E4")
+    m1 = (e1, e2)
+    m2 = (e2, e3)
+    final = (e4,)
+
+    scheduler = EventScheduler([(m1, m2, m1, final)], CollectBy.METRIC, max_events=3)
+
+    assert scheduler.optimized_event_groups == [(e1, e2, e3), (e4,)]
+
+
+def test_metric_schedule_keeps_first_duplicate_occurrence():
+    e1 = make_event("E1")
+    e2 = make_event("E2")
+    e3 = make_event("E3")
+    e4 = make_event("E4")
+    m1 = (e1, e2)
+    m2 = (e2, e3)
+    m3 = (e3, e4)
+
+    scheduler = EventScheduler([(m1, m2, m3, m1)], CollectBy.METRIC, max_events=3)
+
+    assert scheduler.optimized_event_groups == [(e1, e2, e3), (e3, e4)]
 
 
 def test_no_merge_edge_case():
