@@ -5,17 +5,28 @@
 
 import logging
 import re
-from typing import Dict, Mapping, Optional, Sequence, Tuple, TypeVar, Protocol
+from typing import Dict, Mapping, Optional, Protocol, Sequence, Tuple, TypeVar
 
 from topdown_tool.common import simple_maths
 from topdown_tool.perf import PerfEvent
-from topdown_tool.perf.event_scheduler import EventScheduler
 
 logger = logging.getLogger(__name__)
 
 SYMBOL_PATTERN = re.compile(r"[a-zA-Z_]\w*")
 
 EventT = TypeVar("EventT", bound=PerfEvent)
+
+
+class EventResultRetriever(Protocol[EventT]):
+    """Protocol for retrieving metric event results."""
+
+    def retrieve_event_results(
+        self,
+        perf_result: Dict[Tuple[EventT, ...], Tuple[Optional[float], ...]],
+        group: Sequence[Tuple[EventT, ...]],
+        metric_events: Tuple[EventT, ...],
+    ) -> Tuple[Optional[float], ...]:
+        """Retrieve results for the requested metric events."""
 
 
 class MetricProtocol(Protocol[EventT]):
@@ -31,16 +42,16 @@ ComputedMetricsMap = Mapping[MetricProtocol[EventT], Optional[float]]
 
 def compute_metric_value(  # pylint: disable=too-many-arguments, too-many-locals
     *,
-    scheduler: EventScheduler[EventT],
+    scheduler: EventResultRetriever[EventT],
     perf_result: Mapping[Tuple[EventT, ...], Tuple[Optional[float], ...]],
     group_metric_events: Sequence[Sequence[EventT]],
     metric: MetricProtocol[EventT],
     computed_metrics: Optional[ComputedMetricsMap] = None,
 ) -> Optional[float]:
-    """Compute a single metric using the scheduler to fetch event values.
+    """Compute a single metric using the event-result retriever.
 
     Args:
-        scheduler: Event scheduler responsible for retrieving perf result values.
+        scheduler: Event-result retriever responsible for retrieving perf result values.
         perf_result: Perf results captured for a single timestamp.
         group_metric_events: Metric-event tuples for the group the metric belongs to.
         metric: Metric definition to compute (provides name/formula metadata).
