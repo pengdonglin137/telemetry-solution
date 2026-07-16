@@ -343,6 +343,24 @@ def test_metric_schedule_keeps_first_duplicate_occurrence():
     assert scheduler.optimized_event_groups == [(e1, e2, e3), (e3, e4)]
 
 
+def test_metric_schedule_rejects_metric_larger_than_max_events():
+    metric = tuple(make_event(f"E{i}") for i in range(4))
+
+    with pytest.raises(GroupScheduleError) as exc_info:
+        EventScheduler([(metric,)], CollectBy.METRIC, max_events=3)
+
+    assert exc_info.value.unique_events == set(metric)
+    assert exc_info.value.available_events == 3
+
+
+def test_metric_schedule_accepts_metric_equal_to_max_events():
+    metric = tuple(make_event(f"E{i}") for i in range(3))
+
+    scheduler = EventScheduler([(metric,)], CollectBy.METRIC, max_events=3)
+
+    assert scheduler.optimized_event_groups == [metric]
+
+
 def test_no_merge_edge_case():
     # Edge case: Groups that cannot be merged because union exceeds max_events
     e1 = make_event("E1")

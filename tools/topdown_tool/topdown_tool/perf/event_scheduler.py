@@ -311,6 +311,10 @@ class EventScheduler(Generic[E]):
             return self._optimize_event_groups(res)
         if self.collect_by is CollectBy.METRIC:
             metrics = [m for g in self.groups for m in g]
+            for metric_events in metrics:
+                unique_events = set(metric_events)
+                if len(unique_events) > self.max_events:
+                    raise GroupScheduleError(unique_events, self.max_events)
             return self._optimize_event_groups(metrics)
 
         raise ValueError(f"Unknown collect_by value: {self.collect_by}")
