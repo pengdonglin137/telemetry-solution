@@ -372,7 +372,7 @@ class CmnProbeFactory(Base.ProbeFactory):
                 sys.executable,
                 os.path.basename(sys.executable),
                 discovery_tool_path,
-                "--cmn-loc-no-cache",
+                "--cmn-locs-no-cache",
                 "--overwrite",
                 "-o",
                 "/proc/self/fd/" + str(write_end),
