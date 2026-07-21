@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2025 Arm Limited
 
-from typing import List, Optional, Any
+from dataclasses import dataclass, field
+from typing import List, Optional, Any, Dict, Union
 
 from rich.align import Align
 from rich.console import Console, ConsoleOptions, RenderResult
@@ -22,6 +23,12 @@ from rich.table import Table
 class SplitTable:
     MAX_COLUMNS = 10
 
+    @dataclass(frozen=True)
+    class Settings:
+        title: Optional[str] = None
+        table_kwargs: Dict[str, Any] = field(default_factory=dict)
+        column_kwargs: List[Dict[str, Any]] = field(default_factory=list)
+
     class Row:
         def __init__(self, row_prefixes: List[str], row: List[Any], row_suffixes: List[str]):
             self.prefixes = row_prefixes
@@ -33,12 +40,20 @@ class SplitTable:
         header_prefixes: List[str],
         headers: List[str],
         header_suffixes: List[str],
-        title: Optional[str] = None,
-    ):
-        self.title = title
+        settings: Optional[Union[str, "SplitTable.Settings"]] = None,
+    ) -> None:
+        if settings is None:
+            resolved_settings = self.Settings()
+        elif isinstance(settings, self.Settings):
+            resolved_settings = settings
+        else:
+            resolved_settings = self.Settings(title=settings)
+        self.title = resolved_settings.title
         self.header_row = self.Row(header_prefixes, headers, header_suffixes)
         self.rows: List["SplitTable.Row"] = []
         self.max_main_columns = self.MAX_COLUMNS - len(header_prefixes) - len(header_suffixes)
+        self.table_kwargs = resolved_settings.table_kwargs
+        self.column_kwargs = resolved_settings.column_kwargs
 
     def add_row(self, row_prefixes: List[str], row: List[Any], row_suffixes: List[str]) -> None:
         row = [Align.right(value) for value in row]
@@ -46,9 +61,11 @@ class SplitTable:
 
     def __rich_console__(self, _console: Console, _options: ConsoleOptions) -> RenderResult:
         # Extend rows to maximum row length
-        max_length = max(len(row.main) for row in self.rows)
-        for row in self.rows:
-            row.main += [""] * (max_length - len(row.main))
+        max_length = len(self.header_row.main)
+        if self.rows:
+            max_length = max(max_length, max(len(row.main) for row in self.rows))
+            for row in self.rows:
+                row.main += [""] * (max_length - len(row.main))
 
         # Print split tables
         first_table = True
@@ -57,15 +74,22 @@ class SplitTable:
             for i in range(0, len(self.header_row.main), self.max_main_columns)
         ]:
             if first_table:
-                table = Table(title=self.title)
+                table = Table(title=self.title, **self.table_kwargs)
             else:
-                table = Table()
-            for column in (
-                self.header_row.prefixes
-                + self.header_row.main[column_range.start : column_range.stop]
-                + self.header_row.suffixes
+                table = Table(**self.table_kwargs)
+            prefix_count = len(self.header_row.prefixes)
+            for index, column in enumerate(self.header_row.prefixes):
+                table.add_column(column, **self._column_kwargs(index))
+            for main_index, column in enumerate(
+                self.header_row.main[column_range.start : column_range.stop],
+                start=column_range.start,
             ):
-                table.add_column(column)
+                table.add_column(column, **self._column_kwargs(prefix_count + main_index))
+            for suffix_index, column in enumerate(
+                self.header_row.suffixes,
+                start=prefix_count + len(self.header_row.main),
+            ):
+                table.add_column(column, **self._column_kwargs(suffix_index))
             for row in self.rows:
                 table.add_row(
                     *(
@@ -77,6 +101,11 @@ class SplitTable:
             if first_table:
                 first_table = False
             yield table
+
+    def _column_kwargs(self, index: int) -> Dict[str, Any]:
+        if index < len(self.column_kwargs):
+            return self.column_kwargs[index]
+        return {}
 
 
 class Header:
