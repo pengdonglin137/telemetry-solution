@@ -29,6 +29,12 @@
     "0x41d84": {
         "name": "neoverse/neoverse_v3_r0p0_pmu"
     },
+    "0x41d85": {
+        "name": "cortex/cortex_x925_r0p0_pmu"
+    },
+    "0x41d87": {
+        "name": "cortex/cortex_a725_r0p0_pmu"
+    },
     "0x410fd8a0": {
         "name": "lumex/arm_c1_nano_r0p0_pmu"
     },
