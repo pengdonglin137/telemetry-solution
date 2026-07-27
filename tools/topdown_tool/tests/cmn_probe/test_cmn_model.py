@@ -1,6 +1,7 @@
 # Copyright 2025 Arm Limited
 # SPDX-License-Identifier: Apache-2.0
 
+import json
 from pathlib import Path
 import warnings
 
@@ -8,6 +9,7 @@ import pytest
 
 from topdown_tool.cmn_probe.cmn_model import (
     ProductConfiguration,
+    TelemetrySpecification,
     _validate_directory,
     _validate_file,
 )
@@ -74,6 +76,27 @@ def test_validate_file_accepts_fixture_schema() -> None:
 
     assert ok is True
     assert message is None
+
+
+def test_load_from_json_file_rejects_schema_only_validation_error(tmp_path) -> None:
+    fixture_path = Path(__file__).resolve().parent / "fixtures" / "cmn-700.json"
+    document = json.loads(fixture_path.read_text(encoding="utf-8"))
+    document["$schema"] = "required-field.schema.json"
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text(json.dumps(document), encoding="utf-8")
+    schema_path = tmp_path / document["$schema"]
+    schema_path.write_text(
+        json.dumps(
+            {
+                "type": "object",
+                "required": ["schema_only_required_field"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="schema_only_required_field"):
+        TelemetrySpecification.load_from_json_file(spec_path, tmp_path)
 
 
 def test_validate_directory_counts_errors(tmp_path) -> None:

@@ -341,7 +341,6 @@ class TelemetrySpecification(BaseModel):
 
                     try:
                         jsonschema.validate(instance=data, schema=schema)
-                        jsonschema.Draft3Validator(schema, format_checker=jsonschema.FormatChecker())
                     except jsonschema.exceptions.ValidationError as e:
                         raise ValueError(
                             f"Schema validation failed for {path} with the following error: {e.message}\nPlease check the JSON file and the schema."

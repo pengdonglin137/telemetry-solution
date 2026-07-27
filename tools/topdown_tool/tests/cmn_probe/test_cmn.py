@@ -351,7 +351,7 @@ SCENARIOS: List[Scenario] = [
         "capture_per_device_id": True,
         "groups": [
             "CMN_Requestor_Target_Characterization_Level_One",
-            "stage_one_requestor_bw",
+            "CMN_Requestor_Bandwidth",
         ],
         "collect_by": CollectBy.NONE,
     },
