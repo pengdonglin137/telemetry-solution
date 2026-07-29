@@ -1,13 +1,13 @@
 {
     "$schema": "v1.2.schema.json",
     "document": {
-        "timestamp": "16 Jul 07:02:45 2026",
+        "timestamp": "27 Jul 16:16:42 2026",
         "copyright": "Copyright 2022-2026 Arm Ltd.",
         "confidential": false,
         "quality": "Release",
         "license": "Apache-2.0",
         "description": "Telemetry Specification (PMU Events, Metrics and Methodology) for Cortex-X925 processor",
-        "sha1": "40d3cfb9eeb252bfb2974e7c952c11dcc479665f"
+        "sha1": "457be103aa230a19deaf0d83336226c1616aa5a4"
     },
     "product_configuration": {
         "product_name": "Cortex-X925",
@@ -377,6 +377,39 @@
             "code": "0x0026",
             "title": "Level 1 instruction TLB access",
             "description": "Counts level 1 instruction TLB accesses, whether the access hits or misses in the TLB. This event counts both demand accesses and prefetch or preload generated accesses. This event is a superset of the L1I_TLB_REFILL event.",
+            "accesses": [
+                "PMU",
+                "ETE"
+            ],
+            "architecture_defined": true,
+            "product_defined": false
+        },
+        "L3D_CACHE_ALLOCATE": {
+            "code": "0x0029",
+            "title": "Level 3 data cache allocation without refill",
+            "description": "Counts level 3 cache line allocates that do not fetch data from outside the level 3 data or unified cache. For example, allocates due to streaming stores.",
+            "accesses": [
+                "PMU",
+                "ETE"
+            ],
+            "architecture_defined": true,
+            "product_defined": false
+        },
+        "L3D_CACHE_REFILL": {
+            "code": "0x002A",
+            "title": "Level 3 data cache refill",
+            "description": "Counts level 3 accesses that receive data from outside the L3 cache.",
+            "accesses": [
+                "PMU",
+                "ETE"
+            ],
+            "architecture_defined": true,
+            "product_defined": false
+        },
+        "L3D_CACHE": {
+            "code": "0x002B",
+            "title": "Level 3 data cache access",
+            "description": "Counts level 3 cache accesses. Level 3 cache is a unified cache for data and instruction accesses. Accesses are for misses in the lower level caches or translation resolutions due to accesses.",
             "accesses": [
                 "PMU",
                 "ETE"
@@ -1242,6 +1275,17 @@
             "architecture_defined": true,
             "product_defined": false
         },
+        "L3D_CACHE_RD": {
+            "code": "0x00A0",
+            "title": "Level 3 data cache access, read",
+            "description": "Counts level 3 cache accesses caused by any memory read operation. Level 3 cache is a unified cache for data and instruction accesses. Accesses are for misses in the lower level caches or translation resolutions due to accesses.",
+            "accesses": [
+                "PMU",
+                "ETE"
+            ],
+            "architecture_defined": true,
+            "product_defined": false
+        },
         "IMP_L2_CACHE_REFILL_IF": {
             "code": "0x0108",
             "title": "Allocated cache lines to L2 cache due to instruction fetches",
@@ -1674,6 +1718,17 @@
             "code": "0x4009",
             "title": "Level 2 data cache long-latency read miss",
             "description": "Counts cache line refills into the level 2 unified cache from any memory read operations that incurred additional latency. Counts the same as L2D_CACHE_REFILL_RD in this CPU",
+            "accesses": [
+                "PMU",
+                "ETE"
+            ],
+            "architecture_defined": true,
+            "product_defined": false
+        },
+        "L3D_CACHE_LMISS_RD": {
+            "code": "0x400B",
+            "title": "Level 3 data cache long-latency read miss",
+            "description": "Counts any cache line refill into the level 3 cache from memory read operations that incurred additional latency.",
             "accesses": [
                 "PMU",
                 "ETE"
@@ -2565,6 +2620,50 @@
             "code": "0x814E",
             "title": "Level 2 data cache refill, software preload",
             "description": "Counts refills due to accesses generated as a result of software preload or prefetch instructions as counted by L2D_CACHE_PRFM. This CPU includes instruction cache refills in this counter as L2I equivalent event was not implemented.",
+            "accesses": [
+                "PMU",
+                "ETE"
+            ],
+            "architecture_defined": true,
+            "product_defined": false
+        },
+        "L3D_CACHE_RW": {
+            "code": "0x8150",
+            "title": "Level 3 data cache demand access",
+            "description": "Counts level 3 cache accesses caused by any memory read or write operation. Level 3 cache is a unified cache for data and instruction accesses. Accesses are for misses in the lower level caches or translation resolutions due to accesses.",
+            "accesses": [
+                "PMU",
+                "ETE"
+            ],
+            "architecture_defined": true,
+            "product_defined": false
+        },
+        "L3D_CACHE_PRFM": {
+            "code": "0x8151",
+            "title": "Level 3 data cache software preload",
+            "description": "Counts level 3 cache accesses generated by hardware or software prefetches.",
+            "accesses": [
+                "PMU",
+                "ETE"
+            ],
+            "architecture_defined": true,
+            "product_defined": false
+        },
+        "L3D_CACHE_MISS": {
+            "code": "0x8152",
+            "title": "Level 3 data cache demand access miss",
+            "description": "Counts level 3 cache accesses that missed in the level 3 cache.",
+            "accesses": [
+                "PMU",
+                "ETE"
+            ],
+            "architecture_defined": true,
+            "product_defined": false
+        },
+        "L3D_CACHE_REFILL_PRFM": {
+            "code": "0x8153",
+            "title": "Level 3 data cache refill, software preload",
+            "description": "Counts cacheable reads generated by hardware or software prefetches that receive data from outside the L3 cache.",
             "accesses": [
                 "PMU",
                 "ETE"
@@ -3848,6 +3947,21 @@
                     "L2D_CACHE_WR",
                     "IMP_L2D_CACHE_L1HWPRF",
                     "IMP_L2D_CACHE_REFILL_L1HWPRF"
+                ]
+            },
+            "L3_Cache": {
+                "title": "L3 CACHE",
+                "description": "L3 unified cache related events",
+                "events": [
+                    "L3D_CACHE",
+                    "L3D_CACHE_ALLOCATE",
+                    "L3D_CACHE_LMISS_RD",
+                    "L3D_CACHE_MISS",
+                    "L3D_CACHE_PRFM",
+                    "L3D_CACHE_RD",
+                    "L3D_CACHE_REFILL",
+                    "L3D_CACHE_REFILL_PRFM",
+                    "L3D_CACHE_RW"
                 ]
             },
             "LL_Cache": {

@@ -1,13 +1,13 @@
 {
     "$schema": "v1.2.schema.json",
     "document": {
-        "timestamp": "16 Jul 07:02:46 2026",
+        "timestamp": "27 Jul 16:16:42 2026",
         "copyright": "Copyright 2022-2026 Arm Ltd.",
         "confidential": false,
         "quality": "Release",
         "license": "Apache-2.0",
         "description": "Telemetry Specification (PMU Events, Metrics and Methodology) for Cortex-A725 processor",
-        "sha1": "40d3cfb9eeb252bfb2974e7c952c11dcc479665f"
+        "sha1": "457be103aa230a19deaf0d83336226c1616aa5a4"
     },
     "product_configuration": {
         "product_name": "Cortex-A725",
