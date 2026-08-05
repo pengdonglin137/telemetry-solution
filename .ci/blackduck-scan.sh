@@ -120,25 +120,29 @@ cleanup_old_project_versions() {
 BEARER_TOKEN=$(curl -fsS -X POST -H "Accept: application/vnd.blackducksoftware.user-4+json" -H "Content-Type: application/json" -H "Authorization: token $BLACKDUCK_SVC_ACCOUNT_API_KEY" ${BLACKDUCK_HOST_URL}/api/tokens/authenticate | jq -r '.bearerToken')
 cleanup_old_project_versions $BEARER_TOKEN $PROJECT_ID $VERSIONS_LIMIT $CURRENT_VERSION
 
-if [ -f uv.lock ]; then
-    uv export \
-        --locked \
-        --format requirements.txt \
-        --output-file requirements.txt \
-        --no-dev \
-        --no-emit-project \
-        --no-hashes \
-        --no-header \
-        --no-annotate
-else
-    uv pip compile pyproject.toml \
-        --universal \
-        --output-file requirements.txt \
-        --no-header \
-        --no-annotate
-fi
 curl -fsSL $BLACKDUCK_DETECT_SCRIPT_URL -o detect_arm.sh
 chmod +x ./detect_arm.sh
+
+# Export runtime dependency pins from uv.lock.
+uv export \
+    --quiet \
+    --frozen \
+    --no-default-groups \
+    --format requirements.txt \
+    --output-file requirements.lock.txt \
+    --no-emit-project \
+    --no-hashes \
+    --no-header \
+    --no-annotate
+
+# Materialize a Python 3.10-specific requirements.txt from lock-derived pins.
+uv pip compile requirements.lock.txt \
+    --python-version 3.10 \
+    --output-file requirements.txt \
+    --no-header \
+    --no-annotate
+rm -f requirements.lock.txt
+
 ./detect_arm.sh \
     --blackduck.url=$BLACKDUCK_HOST_URL \
     --detect.project.name=$PROJECT_NAME \
@@ -147,7 +151,8 @@ chmod +x ./detect_arm.sh
     --detect.accuracy.required=NONE \
     --detect.tools=DETECTOR \
     --detect.source.path=. \
-    --detect.python.pip.requirements.file=requirements.txt
+    --detect.excluded.detector.types=SETUPTOOLS,UV \
+    --detect.required.detector.types=PIP
 
 export BDS_JAVA_HOME=/usr/lib/jvm/java-21-openjdk-arm64/
 ./detect_arm.sh \
