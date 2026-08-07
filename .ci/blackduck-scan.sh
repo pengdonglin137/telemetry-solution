@@ -181,7 +181,7 @@ get_snippets() {
     local bearer_token=$1
     local version=$2
 
-    local version_link=$(blackduck_get_json $bearer_token $BLACKDUCK_HOST_URL'/api/projects/'$PROJECT_ID'/versions/?limit=1000' | jq -r '.items[] | select(.versionName=="'$version'") | ._meta.href ')
+    local version_link=$(blackduck_get_json $bearer_token $BLACKDUCK_HOST_URL'/api/projects/'$PROJECT_ID'/versions/?limit=1000' | jq -r --arg version "$version" '.items[] | select(.versionName == $version) | ._meta.href ')
     local link=$version_link/'matched-files?limit=1000&filter=bomMatchType%3Asnippet'
 
     local final_res=""
@@ -196,7 +196,7 @@ get_components_link() {
     local bearer_token=$1
     local version=$2
 
-    blackduck_get_json $bearer_token $BLACKDUCK_HOST_URL'/api/projects/'$PROJECT_ID'/versions/?limit=1000' | jq -r '.items[] | select(.versionName=="'$version'") | ._meta.links[] | select(.rel=="components") | .href '
+    blackduck_get_json $bearer_token $BLACKDUCK_HOST_URL'/api/projects/'$PROJECT_ID'/versions/?limit=1000' | jq -r --arg version "$version" '.items[] | select(.versionName == $version) | ._meta.links[] | select(.rel=="components") | .href '
 }
 
 get_risk() {
