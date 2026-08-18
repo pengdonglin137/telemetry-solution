@@ -418,7 +418,7 @@ The list of valid scopes are in the [.ci/commit-msg-scopes](../../.ci/commit-msg
    ```
 - **Unit tests:**
    ```sh
-   uv run --locked --group tox tox -e py312
+   uv run --locked --group tox tox -e py314
    ```
 - **Package metadata checks:**
    ```sh
