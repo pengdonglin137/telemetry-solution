@@ -3,6 +3,7 @@
 
 import dataclasses
 import json
+import os
 import re
 import sys
 from typing import Iterable, Optional
@@ -10,6 +11,7 @@ from typing import Iterable, Optional
 import mrs_data
 
 MNEMONICS_FILENAME = "categories.json"
+TELEMETRY_EVENT_GROUP_OVERRIDES_FILENAME = "event_group_overrides.json"
 
 
 class EventGrouper():
@@ -49,12 +51,39 @@ class ArmDataEventGrouper(EventGrouper):
 
 
 class TelemetryEventGrouper(EventGrouper):
+    def __init__(self, path_to_overrides=TELEMETRY_EVENT_GROUP_OVERRIDES_FILENAME):
+        if not os.path.isabs(path_to_overrides):
+            path_to_overrides = os.path.join(os.path.dirname(__file__), path_to_overrides)
+
+        with open(path_to_overrides, 'r') as f:
+            self.group_overrides = json.load(f)
+
     def get_groups(self, event_name, source_file_name):
         def perf_name(group_name):
             return group_name.lower().replace(" ", "-")
 
         group_list = mrs_data.read_telemetry_function_groups(source_file_name)
-        return [perf_name(g) for g in group_list if event_name in group_list[g]["events"]]
+        groups = [perf_name(g) for g in group_list if event_name in group_list[g]["events"]]
+
+        if len(groups) <= 1:
+            return groups
+
+        candidate_groups = sorted(groups)
+
+        override_group = self.group_overrides.get(event_name)
+        assert override_group is not None, (
+            f"Ambiguous telemetry function groups for {event_name} in "
+            f"{os.path.basename(source_file_name)}: {candidate_groups}. "
+            f"Please add an explicit override in {TELEMETRY_EVENT_GROUP_OVERRIDES_FILENAME}."
+        )
+
+        override_group = perf_name(override_group)
+        assert override_group in candidate_groups, (
+            f"Override group '{override_group}' for event {event_name} is not one of the "
+            f"candidate groups {candidate_groups} in {os.path.basename(source_file_name)}."
+        )
+
+        return [override_group]
 
 
 def add_categories(events: Iterable, event_grouper: Optional[EventGrouper], source_file_name: str):

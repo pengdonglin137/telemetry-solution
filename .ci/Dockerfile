@@ -28,7 +28,7 @@ RUN set -ex; \
     apt-get -y install software-properties-common; \
     add-apt-repository -y ppa:deadsnakes/ppa; \
     apt-get update; \
-    apt-get -y install gcc make zip git cmake \
+    apt-get -y install gcc make zip git cmake pkg-config flex bison libelf-dev \
                           python3 python3-pip python3-venv \
                           python3.10 python3.11 python3.12 python3.13 python3.14 \
                           curl openjdk-21-jdk jq; \

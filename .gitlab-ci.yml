@@ -339,9 +339,10 @@ perf-json-generator:
       uv run --locked pre-commit run --all-files
       git clone --sparse --depth=1 --single-branch https://github.com/torvalds/linux.git
       pushd linux
-      git sparse-checkout add tools/perf
+      git sparse-checkout add tools scripts arch/arm64/tools arch/arm64/include
       popd
       find $WORKSPACE/data/pmu/cpu/specifications/* -name '*.json' | grep -Ev 'schema|-sme2-' | xargs -I '{}' ./generate.py linux/tools/perf --telemetry-files '{}'
+      make -C linux/tools/perf perf JEVENTS_ARCH=arm64 NO_LIBTRACEEVENT=1
       pushd linux
       git diff --name-only > changed_files.txt
       git ls-files --others --exclude-standard >> changed_files.txt
