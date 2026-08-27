@@ -1,171 +1,198 @@
-
 {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "JSON Schema for Arm CPU telemetry specifications (v1.0)",
+    "description": "Defines and validates the v1.0 JSON format for Arm CPU telemetry specifications. A specification contains document metadata, CPU identification and capabilities, PMU events, derived metrics, groups, and analysis methodologies.",
+    "type": "object",
+    "properties": {
+        "$schema": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Reference identifying the schema associated with this CPU telemetry specification. The reference can be a schema filename, for example v1.0.schema.json. Resolution is consumer-defined; this format does not require network retrieval or resolution relative to the specification file. Validation against an explicitly supplied schema does not require the reference to match that schema's filename."
+        },
+        "document": {
+            "$ref": "#/$defs/DocumentMetadata",
+            "description": "Metadata describing the specification's source, maturity, licence, and generation."
+        },
+        "product_configuration": {
+            "$ref": "#/$defs/ProductConfiguration",
+            "description": "Identifies the CPU and records capabilities needed to interpret its telemetry."
+        },
+        "events": {
+            "$ref": "#/$defs/EventMap",
+            "description": "PMU events available for this CPU."
+        },
+        "metrics": {
+            "$ref": "#/$defs/MetricMap",
+            "description": "Metrics calculated from this CPU's PMU events."
+        },
+        "groups": {
+            "$ref": "#/$defs/Groups",
+            "description": "Classifications used to organise events and metrics."
+        },
+        "methodologies": {
+            "$ref": "#/$defs/MethodologyMap",
+            "description": "Analysis methodologies that arrange metric groups into stages and decision trees."
+        }
+    },
+    "required": [
+        "$schema",
+        "document",
+        "product_configuration",
+        "events",
+        "metrics",
+        "groups",
+        "methodologies"
+    ],
+    "additionalProperties": false,
     "$defs": {
-        "Access": {
-            "description": "Enumeration of possible values for access",
-            "enum": [
-                "PMU",
-                "ETE"
-            ],
-            "title": "Access",
-            "type": "string"
+        "HexString": {
+            "type": "string",
+            "pattern": "^0x[0-9A-Fa-f]+$(?![\\s\\S])",
+            "description": "Unsigned integer written as a hexadecimal string with a lower-case 0x prefix. Digits A-F may use either case. Leading zeros are allowed within the digit limit of the bounded type.",
+            "examples": [
+                "0xA",
+                "0x000a"
+            ]
         },
-        "Description": {
-            "description": "Text written with a Markdown syntax.\ncan be templated with jinja2 and include a `link` which is used to render a link template define by the generator\n\n.. code-block:: yaml\n\n    This is a description that has link to a parameter [PARAM1]({{link('Parameter', 'PARAM1')}})\n\nThe template of the link can then be defined in when rendering the description:\n\n.. code-block:: python\n\n    my_desc.to_html({'Parameter': '#{{_type}}_{{name}}'})",
-            "title": "Description",
-            "type": "string"
+        "UInt8HexString": {
+            "$ref": "#/$defs/HexString",
+            "pattern": "^0x[0-9A-Fa-f]{1,2}$(?![\\s\\S])",
+            "description": "Unsigned 8-bit integer encoded as a hexadecimal string, from 0 through 255, with one to 2 hexadecimal digits."
         },
-        "PrivateEvent": {
-            "additionalProperties": false,
-            "description": "Private Event has only code",
-            "properties": {
-                "code": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "default": null,
-                    "description": "Event register code for counting",
-                    "title": "Code"
-                }
-            },
-            "title": "PrivateEvent",
-            "type": "object"
+        "UInt12HexString": {
+            "$ref": "#/$defs/HexString",
+            "pattern": "^0x[0-9A-Fa-f]{1,3}$(?![\\s\\S])",
+            "description": "Unsigned 12-bit integer encoded as a hexadecimal string, from 0 through 4095, with one to 3 hexadecimal digits."
         },
-        "ProductDefinedAttributes": {
-            "additionalProperties": false,
-            "description": "Attributes specific to product-defined events.",
-            "properties": {
-                "debug": {
-                    "description": "True if it is a debug event",
-                    "title": "Debug",
-                    "type": "boolean"
-                }
-            },
-            "required": [
-                "debug"
-            ],
-            "title": "ProductDefinedAttributes",
-            "type": "object"
+        "UInt16HexString": {
+            "$ref": "#/$defs/HexString",
+            "pattern": "^0x[0-9A-Fa-f]{1,4}$(?![\\s\\S])",
+            "description": "Unsigned 16-bit integer encoded as a hexadecimal string, from 0 through 65535, with one to 4 hexadecimal digits."
         },
-        "DecisionTree": {
-            "additionalProperties": false,
-            "description": "DecisionTree model dataclass",
-            "example": {
-                "decision_tree": {
-                    "metrics": [
-                        {
-                            "group": "node_group",
-                            "name": "node",
-                            "next_items": [
-                                "Next_Node"
-                            ],
-                            "sample_events": [
-                                "NODE_EVENT"
-                            ]
-                        }
-                    ],
-                    "root_nodes": [
-                        "root_node"
-                    ]
-                }
-            },
-            "properties": {
-                "root_nodes": {
-                    "items": {
-                        "pattern": "^\\w+$",
-                        "type": "string"
-                    },
-                    "title": "Root Nodes",
-                    "type": "array"
-                },
-                "metrics": {
-                    "items": {
-                        "$ref": "#/$defs/MetricTree"
-                    },
-                    "title": "Metrics",
-                    "type": "array"
-                }
-            },
-            "required": [
-                "root_nodes",
-                "metrics"
-            ],
-            "title": "DecisionTree",
-            "type": "object"
+        "UInt4DecimalString": {
+            "type": "string",
+            "pattern": "^(?:[0-9]|1[0-5])$(?![\\s\\S])",
+            "description": "Unsigned 4-bit integer encoded as a decimal string from \"0\" through \"15\", without leading zeros.",
+            "examples": [
+                "0",
+                "15"
+            ]
+        },
+        "UnsignedInteger": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Non-negative JSON integer number, not a string. JSON Schema treats a number such as 1.0 as the integer value one.",
+            "examples": [
+                0,
+                10
+            ]
+        },
+        "UInt8Integer": {
+            "$ref": "#/$defs/UnsignedInteger",
+            "maximum": 255,
+            "description": "Unsigned 8-bit JSON integer number, from 0 through 255."
+        },
+        "NonWhitespaceString": {
+            "type": "string",
+            "pattern": "\\S",
+            "description": "Human-readable text containing at least one non-whitespace character.",
+            "examples": [
+                "Example text"
+            ]
+        },
+        "EventIdentifier": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$(?![\\s\\S])",
+            "description": "Case-sensitive name used to define and reference an event within this specification.",
+            "examples": [
+                "INST_RETIRED",
+                "L1D_CACHE_REFILL"
+            ]
+        },
+        "MetricIdentifier": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$(?![\\s\\S])",
+            "description": "Case-sensitive name used to define and reference a metric. The same name identifies a metric used as a methodology decision node.",
+            "examples": [
+                "instructions_per_cycle"
+            ]
+        },
+        "GroupIdentifier": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)*$(?![\\s\\S])",
+            "description": "Case-sensitive local group name. Function-group and metric-group namespaces are distinct.",
+            "examples": [
+                "General",
+                "Miss_Ratio"
+            ]
         },
         "DocumentMetadata": {
-            "additionalProperties": false,
-            "description": "Model to validate the DocumentMetadata",
-            "example": {
-                "document": {
-                    "confidential": false,
-                    "copyright": "Copyright 2022-2023 Arm Ltd.",
-                    "description": "Telemetry Specification for Neoverse Min processor",
-                    "license": "Apache-2.0",
-                    "quality": "Development",
-                    "timestamp": "12 Mar 13:54:40 2024"
-                }
-            },
+            "type": "object",
+            "description": "Information about the specification's source, generation, legal status, and maturity. Optional fields should be omitted rather than set to null.",
             "properties": {
                 "timestamp": {
-                    "description": "When the document has been generated",
-                    "title": "Timestamp",
-                    "type": "string"
+                    "type": "string",
+                    "pattern": "^(?:0[1-9]|[12][0-9]|3[01]) (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9] [0-9]{4}$(?![\\s\\S])",
+                    "description": "Time at which the specification was generated, in DD Mon HH:MM:SS YYYY format. The value does not include a timezone.",
+                    "examples": [
+                        "27 Aug 12:34:56 2026"
+                    ]
                 },
                 "copyright": {
-                    "description": "Document copyright",
-                    "title": "Copyright",
-                    "type": "string"
+                    "$ref": "#/$defs/NonWhitespaceString",
+                    "description": "Publisher copyright notice preserved verbatim.",
+                    "examples": [
+                        "Copyright 2026 Example"
+                    ]
                 },
                 "confidential": {
-                    "description": "Specify if the document is confidential or not",
-                    "title": "Confidential",
-                    "type": "boolean"
+                    "type": "boolean",
+                    "description": "Whether the source specification is classified as confidential. A value of false does not by itself approve the document for publication.",
+                    "examples": [
+                        false
+                    ]
                 },
                 "quality": {
-                    "description": "Quality level of the document. Available values: Development, Alpha, Beta, Release",
-                    "title": "Quality",
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                        "Development",
+                        "Alpha",
+                        "Beta",
+                        "Release"
+                    ],
+                    "description": "Maturity assigned by the specification producer, such as Development or Release. This value does not confirm that validation or publication approval is complete.",
+                    "examples": [
+                        "Release"
+                    ]
                 },
                 "license": {
-                    "description": "Document license",
-                    "title": "License",
-                    "type": "string"
+                    "$ref": "#/$defs/NonWhitespaceString",
+                    "description": "Licence identifier or expression supplied by the publisher. The schema preserves this value but does not grant licence rights.",
+                    "examples": [
+                        "LicenseRef-Example"
+                    ]
                 },
                 "description": {
-                    "$ref": "#/$defs/Description",
-                    "description": "Document description"
+                    "$ref": "#/$defs/NonWhitespaceString",
+                    "description": "Human-readable description of this telemetry specification.",
+                    "examples": [
+                        "Neoverse example telemetry"
+                    ]
                 },
                 "revision": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "default": null,
-                    "description": "Document revision",
-                    "title": "Revision"
+                    "$ref": "#/$defs/NonWhitespaceString",
+                    "description": "Optional opaque publisher-assigned document revision. It is not CPU revision, source commit, or timestamp.",
+                    "examples": [
+                        "2"
+                    ]
                 },
                 "sha1": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "default": null,
-                    "description": "sha1 or version of the repo who generated the document",
-                    "title": "Sha1"
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{40}$(?![\\s\\S])",
+                    "description": "Optional Git commit identifier for the source repository used to generate this specification, encoded as 40 lowercase hexadecimal characters. It helps trace the specification back to its source revision for debugging. It is not a checksum of the generated JSON.",
+                    "examples": [
+                        "0123456789abcdef0123456789abcdef01234567"
+                    ]
                 }
             },
             "required": [
@@ -176,459 +203,541 @@
                 "license",
                 "description"
             ],
-            "title": "DocumentMetadata",
-            "type": "object"
+            "additionalProperties": false
         },
-        "Event": {
-            "additionalProperties": false,
-            "allOf": [
-                {
-                    "if": {
-                        "properties": {
-                            "architecture_defined": {
-                                "const": false
-                            }
-                        }
-                    },
-                    "then": {
-                        "properties": {
-                            "architecture_defined_attributes": {
-                                "type": "null"
-                            }
-                        }
-                    }
+        "ProductConfiguration": {
+            "type": "object",
+            "description": "Contains the CPU product details and PMU capabilities used by telemetry consumers. On Linux arm64, read /sys/devices/system/cpu/cpu<N>/regs/identification/midr_el1 for the selected CPU's MIDR. Its Implementer, PartNum, Variant and Revision fields correspond to implementer, part_num, major_revision and minor_revision. See https://docs.kernel.org/arch/arm64/cpu-feature-registers.html.",
+            "properties": {
+                "product_name": {
+                    "$ref": "#/$defs/NonWhitespaceString",
+                    "description": "Human-readable CPU name.",
+                    "examples": [
+                        "Neoverse V42"
+                    ]
                 },
-                {
-                    "if": {
-                        "properties": {
-                            "product_defined": {
-                                "const": false
-                            }
-                        }
-                    },
-                    "then": {
-                        "properties": {
-                            "product_defined_attributes": {
-                                "type": "null"
-                            }
-                        }
-                    }
+                "part_num": {
+                    "$ref": "#/$defs/UInt12HexString",
+                    "description": "Hexadecimal string containing MIDR_EL1.PartNum, from 0 through 4095 (0xfff).",
+                    "examples": [
+                        "0xd49"
+                    ]
                 },
-                {
-                    "not": {
-                        "properties": {
-                            "architecture_defined": {
-                                "const": true
-                            },
-                            "product_defined": {
-                                "const": true
-                            }
+                "major_revision": {
+                    "$ref": "#/$defs/UInt4DecimalString",
+                    "description": "Decimal string containing MIDR_EL1.Variant, the r value in rNpM, from 0 through 15.",
+                    "examples": [
+                        "0"
+                    ]
+                },
+                "minor_revision": {
+                    "$ref": "#/$defs/UInt4DecimalString",
+                    "description": "Decimal string containing MIDR_EL1.Revision, the p value in rNpM, from 0 through 15.",
+                    "examples": [
+                        "2"
+                    ]
+                },
+                "implementer": {
+                    "$ref": "#/$defs/UInt8HexString",
+                    "description": "Hexadecimal string containing MIDR_EL1.Implementer, from 0 through 255 (0xff). Arm's implementer value is 65 (0x41), but the schema permits other values.",
+                    "examples": [
+                        "0x41"
+                    ]
+                },
+                "architecture": {
+                    "type": "string",
+                    "pattern": "^armv[0-9]+\\.[0-9]+$(?![\\s\\S])",
+                    "description": "Arm A-profile architecture version label, for example armv9.3. This is different from the numeric MIDR_EL1.Architecture field.",
+                    "examples": [
+                        "armv9.2"
+                    ]
+                },
+                "pmu_architecture": {
+                    "$ref": "#/$defs/NonWhitespaceString",
+                    "description": "PMU architecture label supplied by the producer, for example pmu_v3. Consumers should not infer event support from this field alone.",
+                    "examples": [
+                        "pmu_v3"
+                    ]
+                },
+                "num_slots": {
+                    "$ref": "#/$defs/UInt8Integer",
+                    "description": "Maximum number by which STALL_SLOT can increase in one cycle, represented by PMMIR_EL1.SLOTS. This contract requires a value from 1 through 255; it is not the number of PMU counters.",
+                    "examples": [
+                        1,
+                        10
+                    ],
+                    "minimum": 1
+                },
+                "num_bus_slots": {
+                    "$ref": "#/$defs/UnsignedInteger",
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/UInt8Integer"
+                        },
+                        {
+                            "const": 999
                         }
-                    }
-                }
-            ],
-            "description": "Event Model dataclass",
-            "example": {
-                "events": {
-                    "EVENTX": {
-                        "accesses": [
-                            "PMU"
-                        ],
-                        "architectural": false,
-                        "code": "0x1",
-                        "common": false,
-                        "description": "EventX description here",
-                        "impdef": false,
-                        "properties": {
-                            "A": "B"
-                        },
-                        "title": "Example"
-                    },
-                    "SYS_EVENT": {
-                        "accesses": [
-                            "PMU"
-                        ],
-                        "architectural": true,
-                        "common": true,
-                        "description": "System-level event",
-                        "impdef": false,
-                        "properties": {
-                            "X": "Y"
-                        },
-                        "system": true,
-                        "title": "System Event"
-                    }
+                    ],
+                    "description": "Value of PMMIR_EL1.BUS_SLOTS, normally from 0 through 255; 0 means unavailable. The value 999 is accepted temporarily for compatibility with existing producer data and has no hardware meaning.",
+                    "examples": [
+                        0,
+                        8,
+                        999
+                    ]
                 }
             },
+            "required": [
+                "product_name",
+                "part_num",
+                "major_revision",
+                "minor_revision",
+                "implementer",
+                "architecture",
+                "pmu_architecture",
+                "num_slots",
+                "num_bus_slots"
+            ],
+            "additionalProperties": false
+        },
+        "ProductDefinedAttributes": {
+            "type": "object",
+            "description": "Attributes required only when product_defined is true.",
+            "properties": {
+                "debug": {
+                    "type": "boolean",
+                    "description": "Indicates that a product-defined event is documented for debug use. This does not describe runtime permissions or confidentiality.",
+                    "examples": [
+                        false
+                    ]
+                }
+            },
+            "required": [
+                "debug"
+            ],
+            "additionalProperties": false
+        },
+        "Event": {
+            "type": "object",
+            "description": "Definition of one CPU PMU event, including its code, origin, supported access methods, title, and description. Exactly one of architecture_defined and product_defined must be true.",
+            "properties": {
+                "title": {
+                    "$ref": "#/$defs/NonWhitespaceString",
+                    "description": "Human-readable event title.",
+                    "examples": [
+                        "Instructions retired"
+                    ]
+                },
+                "description": {
+                    "$ref": "#/$defs/NonWhitespaceString",
+                    "description": "Description of what the event counts. Its meaning should be checked against the Arm architecture or the CPU TRM.",
+                    "examples": [
+                        "Counts architecturally executed instructions."
+                    ]
+                },
+                "code": {
+                    "$ref": "#/$defs/UInt16HexString",
+                    "description": "CPU event selector encoded as a hexadecimal string from 0x0000 through 0xffff. The numeric event code must be unique across the root $.events map. Differences in hexadecimal letter case or leading zeros do not identify different codes. Fitting this range does not establish that an event is supported by the target CPU. For Linux perf collection through the CPU PMU, use this value as the PMU's event term. Read /sys/bus/event_source/devices/<pmu>/format/event for its encoding; the Arm PMUv3 driver uses config:0-15, meaning bits 0-15 of perf_event_attr.config. See https://code.googlesource.com/linux/torvalds/linux/+/26ba1bf310f0ed43f249a93d0cf8a93675cd8ae8/drivers/perf/arm_pmuv3.c.",
+                    "examples": [
+                        "0x08",
+                        "0x1A"
+                    ]
+                },
+                "architecture_defined": {
+                    "type": "boolean",
+                    "description": "True when the event is defined by the Arm architecture. product_defined must then be false.",
+                    "examples": [
+                        true
+                    ]
+                },
+                "product_defined": {
+                    "type": "boolean",
+                    "description": "True when the event is defined by the CPU product. architecture_defined must then be false, and product_defined_attributes is required.",
+                    "examples": [
+                        false
+                    ]
+                },
+                "product_defined_attributes": {
+                    "$ref": "#/$defs/ProductDefinedAttributes",
+                    "description": "Additional information for a product-defined event. It must be present only when product_defined is true."
+                },
+                "accesses": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": [
+                            "PMU",
+                            "ETE"
+                        ]
+                    },
+                    "minItems": 1,
+                    "maxItems": 2,
+                    "uniqueItems": true,
+                    "description": "Ways the event can be observed. PMU means it can be counted using a PMU event counter; ETE means it is available through the Embedded Trace Extension. This field does not describe software permissions or confidentiality.",
+                    "examples": [
+                        [
+                            "PMU"
+                        ],
+                        [
+                            "ETE"
+                        ],
+                        [
+                            "PMU",
+                            "ETE"
+                        ]
+                    ]
+                }
+            },
+            "required": [
+                "title",
+                "description",
+                "code",
+                "architecture_defined",
+                "product_defined",
+                "accesses"
+            ],
+            "additionalProperties": false,
             "oneOf": [
                 {
+                    "description": "Architecture-defined branch: complementary flags and no product attributes.",
                     "properties": {
-                        "system": {
+                        "architecture_defined": {
+                            "const": true
+                        },
+                        "product_defined": {
+                            "const": false
+                        }
+                    },
+                    "not": {
+                        "required": [
+                            "product_defined_attributes"
+                        ]
+                    }
+                },
+                {
+                    "description": "Product-defined branch: complementary flags and required product attributes.",
+                    "properties": {
+                        "architecture_defined": {
+                            "const": false
+                        },
+                        "product_defined": {
                             "const": true
                         }
                     },
                     "required": [
-                        "system"
-                    ]
-                },
-                {
-                    "properties": {
-                        "system": {
-                            "const": false
-                        }
-                    },
-                    "required": [
-                        "system",
-                        "code"
-                    ]
-                },
-                {
-                    "not": {
-                        "required": [
-                            "system"
-                        ]
-                    },
-                    "required": [
-                        "code"
+                        "product_defined_attributes"
                     ]
                 }
-            ],
-            "properties": {
-                "code": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "default": null,
-                    "description": "Event register code for counting",
-                    "title": "Code"
-                },
-                "title": {
-                    "description": "Title of the event",
-                    "title": "Title",
-                    "type": "string"
-                },
-                "description": {
-                    "$ref": "#/$defs/Description",
-                    "description": "Description of what is being counted for the event"
-                },
-                "accesses": {
-                    "description": "Access interface - PMU/ETM",
-                    "items": {
-                        "$ref": "#/$defs/Access"
-                    },
-                    "title": "Accesses",
-                    "type": "array"
-                },
-                "architecture_defined": {
-                    "description": "The event is defined in ARM architecture",
-                    "title": "Architecture Defined",
-                    "type": "boolean"
-                },
-                "product_defined": {
-                    "description": "The event is product defined",
-                    "title": "Product Defined",
-                    "type": "boolean"
-                },
-                "product_defined_attributes": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/$defs/ProductDefinedAttributes"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "default": null,
-                    "description": "List of product attributes if the event is product_defined"
-                },
-                "properties": {
-                    "anyOf": [
-                        {
-                            "patternProperties": {
-                                "^\\w+$": {}
-                            },
-                            "type": "object"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "default": null,
-                    "description": "An expression for addition product specific attributes",
-                    "title": "Properties"
-                },
-                "system": {
-                    "default": false,
-                    "description": "If system is true, then it is a system event",
-                    "title": "System",
-                    "type": "boolean"
-                }
-            },
-            "required": [
-                "title",
-                "description",
-                "accesses",
-                "architecture_defined",
-                "product_defined"
-            ],
-            "title": "Event",
-            "type": "object"
+            ]
         },
-        "GroupCategory": {
-            "additionalProperties": false,
-            "description": "GroupCategory model dataclass",
-            "properties": {
-                "title": {
-                    "description": "Title of the category",
-                    "title": "Title",
-                    "type": "string"
-                },
-                "description": {
-                    "$ref": "#/$defs/Description",
-                    "description": "Description of the category"
-                },
-                "metrics": {
-                    "anyOf": [
-                        {
-                            "items": {
-                                "pattern": "^\\w+$",
-                                "type": "string"
-                            },
-                            "type": "array"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "default": null,
-                    "description": "Group category metrics",
-                    "title": "Metrics"
-                },
-                "events": {
-                    "anyOf": [
-                        {
-                            "items": {
-                                "pattern": "^\\w+$",
-                                "type": "string"
-                            },
-                            "type": "array"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "default": null,
-                    "description": "Group category events",
-                    "title": "Events"
-                }
+        "EventMap": {
+            "type": "object",
+            "minProperties": 1,
+            "propertyNames": {
+                "$ref": "#/$defs/EventIdentifier"
             },
-            "required": [
-                "title",
-                "description"
-            ],
-            "title": "GroupCategory",
-            "type": "object"
-        },
-        "Methodology": {
-            "additionalProperties": false,
-            "description": "Methodology model dataclass",
-            "example": {
-                "topdown_methodology": {
-                    "decision_tree": {
-                        "metrics": [
-                            {
-                                "group": "stg_1_metric",
-                                "name": "root_node1",
-                                "next_items": [
-                                    "stg_2_metric"
-                                ],
-                                "sample_events": [
-                                    "NODE1"
-                                ]
-                            },
-                            {
-                                "group": "stg_1_metric",
-                                "name": "root_node2",
-                                "next_items": [
-                                    "stg_2_metric2"
-                                ],
-                                "sample_events": [
-                                    "NODE2"
-                                ]
-                            }
-                        ],
-                        "root_nodes": [
-                            "root_node1",
-                            "root_node2"
-                        ]
-                    },
-                    "description": "Topdown Performance Analysis Methodology",
-                    "metric_grouping": {
-                        "stage_1": [
-                            "stg_1_metric"
-                        ],
-                        "stage_2": [
-                            "stg_2_metric",
-                            "stg_2_metric2"
-                        ]
-                    },
-                    "title": "Topdown Methodology"
-                }
+            "additionalProperties": {
+                "$ref": "#/$defs/Event"
             },
-            "properties": {
-                "title": {
-                    "description": "Methodology title",
-                    "title": "Title",
-                    "type": "string"
-                },
-                "description": {
-                    "$ref": "#/$defs/Description",
-                    "description": "Methodology description"
-                },
-                "metric_grouping": {
-                    "description": "Metric groups used for each stage of the methodology added as lists",
-                    "patternProperties": {
-                        "^\\w+$": {
-                            "items": {
-                                "pattern": "^\\w+$",
-                                "type": "string"
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "title": "Metric Grouping",
-                    "type": "object"
-                },
-                "decision_tree": {
-                    "$ref": "#/$defs/DecisionTree",
-                    "description": "Stage 1 topdown analysis tree with root_nodes and child metrics. Each metric has the following fields: * name: metric name * group: metric groups the metric belong to * next_items: leaves of the node * sample_events: Events for sampling if the bottleneck is detected at this specific metric node"
-                }
-            },
-            "required": [
-                "title",
-                "description",
-                "metric_grouping",
-                "decision_tree"
-            ],
-            "title": "Methodology",
-            "type": "object"
+            "description": "Maps case-sensitive event names to event definitions. At least one event is required."
         },
         "Metric": {
-            "additionalProperties": false,
-            "description": "Metric model dataclass",
-            "example": {
-                "metrics": {
-                    "a_metric": {
-                        "description": "Metric description here",
-                        "events": [],
-                        "formula": "NA",
-                        "title": "Example",
-                        "units": ""
-                    }
-                }
-            },
+            "type": "object",
+            "description": "A value calculated from PMU events. formula contains the calculation and events lists the event values used by it.",
             "properties": {
                 "title": {
-                    "description": "Title of the metrics",
-                    "title": "Title",
-                    "type": "string"
-                },
-                "formula": {
-                    "description": "Formula to compute the metrics",
-                    "title": "Formula",
-                    "type": "string"
+                    "$ref": "#/$defs/NonWhitespaceString",
+                    "description": "Human-readable metric title.",
+                    "examples": [
+                        "Instructions per cycle"
+                    ]
                 },
                 "description": {
-                    "$ref": "#/$defs/Description",
-                    "description": "Description of the metrics"
+                    "$ref": "#/$defs/NonWhitespaceString",
+                    "description": "Human-readable explanation of the derived value.",
+                    "examples": [
+                        "Retired instructions divided by cycles."
+                    ]
+                },
+                "formula": {
+                    "$ref": "#/$defs/NonWhitespaceString",
+                    "description": "Expression calculating this metric from case-sensitive event names and numeric constants. Numeric literals may be decimal integers, decimal fractions or scientific notation, for example 1000, 0.5, .5, 1. and 1e3. Integer literals may also use hexadecimal (0x10), octal (0o10) or binary (0b10) notation. Underscores may separate digits, for example 1_000. These spellings do not change the permitted set of formula operators. Each referenced event must appear in this metric's events array and in the specification's root events map ($.events). Validate formula syntax and these references after JSON Schema validation; this schema checks only that formula is non-empty text. Supported operators are addition (+), subtraction (-), multiplication (*), real division (/), unary minus (-), left shift (<<) and arithmetic right shift (>>). Precedence, from highest to lowest, is unary minus, multiplication/division, addition/subtraction, then shifts. Binary operators at the same precedence associate left-to-right; parentheses override precedence. For shifts, truncate the left operand towards zero to an integer and require a non-negative integer shift count; a floating-point count such as 2.0 is invalid. For example, 3.9 << 2 gives 12. Use parentheses when combining shifts with arithmetic, for example (EVENT << 2) / CYCLES. A missing required measurement makes the metric unavailable. Division by zero makes the result undefined. Neither condition represents a valid zero result.",
+                    "examples": [
+                        "INST_RETIRED / CPU_CYCLES",
+                        "100 * (1 - OP_RETIRED / OP_SPEC)",
+                        "-(INST_RETIRED / CPU_CYCLES)",
+                        "(INST_RETIRED << 2) / CPU_CYCLES"
+                    ]
                 },
                 "units": {
-                    "description": "Metrics unit",
-                    "title": "Units",
-                    "type": "string"
+                    "$ref": "#/$defs/NonWhitespaceString",
+                    "description": "Unit displayed for the metric. Any scaling must be included in formula.",
+                    "examples": [
+                        "instructions/cycle"
+                    ]
                 },
                 "events": {
-                    "description": "Events needed to calculate the metrics",
+                    "type": "array",
                     "items": {
-                        "pattern": "^\\w+$",
-                        "type": "string"
+                        "$ref": "#/$defs/EventIdentifier"
                     },
-                    "title": "Events",
-                    "type": "array"
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "description": "This array must contain exactly the distinct event identifiers referenced by formula. Each identifier must exist as a key in the root $.events map. Order has no semantic meaning and duplicates are invalid. At least one member is required. Reference existence and exact agreement with formula require semantic validation after JSON Schema validation.",
+                    "examples": [
+                        [
+                            "INST_RETIRED",
+                            "CPU_CYCLES"
+                        ]
+                    ]
                 },
                 "sample_events": {
-                    "description": "Events for sampling if the bottleneck is detected at this specific metric node",
+                    "type": "array",
                     "items": {
-                        "pattern": "^\\w+$",
-                        "type": "string"
+                        "$ref": "#/$defs/EventIdentifier"
                     },
-                    "title": "Sample Events",
-                    "type": "array"
+                    "minItems": 0,
+                    "uniqueItems": true,
+                    "description": "Events recommended for sampling when this metric identifies a bottleneck. The list may be empty and must not contain duplicates. Each identifier must exist as a key in the root $.events map; reference existence requires semantic validation after JSON Schema validation.",
+                    "examples": [
+                        [],
+                        [
+                            "INST_RETIRED"
+                        ]
+                    ]
                 }
             },
             "required": [
                 "title",
-                "formula",
                 "description",
+                "formula",
                 "units",
                 "events",
                 "sample_events"
             ],
-            "title": "Metric",
-            "type": "object"
+            "additionalProperties": false
+        },
+        "MetricMap": {
+            "type": "object",
+            "minProperties": 1,
+            "propertyNames": {
+                "$ref": "#/$defs/MetricIdentifier"
+            },
+            "additionalProperties": {
+                "$ref": "#/$defs/Metric"
+            },
+            "description": "Maps case-sensitive metric names to metric definitions. At least one metric is required."
+        },
+        "FunctionGroup": {
+            "type": "object",
+            "description": "Groups events by processor function for discovery and presentation. Membership does not require the events to be scheduled together.",
+            "properties": {
+                "title": {
+                    "$ref": "#/$defs/NonWhitespaceString",
+                    "description": "Presentation title for a processor-function grouping.",
+                    "examples": [
+                        "General"
+                    ]
+                },
+                "description": {
+                    "$ref": "#/$defs/NonWhitespaceString",
+                    "description": "Explanation of the event classification.",
+                    "examples": [
+                        "General architectural events."
+                    ]
+                },
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/EventIdentifier"
+                    },
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "description": "Event identifiers belonging to this function group. Each identifier must exist as a key in the root $.events map. This array represents a set: order has no semantic meaning and duplicates are invalid. At least one member is required. Reference existence must be checked after JSON Schema validation.",
+                    "examples": [
+                        [
+                            "INST_RETIRED"
+                        ]
+                    ]
+                }
+            },
+            "required": [
+                "title",
+                "description",
+                "events"
+            ],
+            "additionalProperties": false
+        },
+        "MetricGroup": {
+            "type": "object",
+            "description": "Groups related metrics for discovery and use by analysis methodologies. Membership does not require the metrics to be captured together.",
+            "properties": {
+                "title": {
+                    "$ref": "#/$defs/NonWhitespaceString",
+                    "description": "Presentation title for a metric grouping.",
+                    "examples": [
+                        "Frontend"
+                    ]
+                },
+                "description": {
+                    "$ref": "#/$defs/NonWhitespaceString",
+                    "description": "Explanation of the metric classification.",
+                    "examples": [
+                        "Frontend analysis metrics."
+                    ]
+                },
+                "metrics": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/MetricIdentifier"
+                    },
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "description": "Metric identifiers belonging to this metric group. Each identifier must exist as a key in the root $.metrics map. This array represents a set: order has no semantic meaning and duplicates are invalid. At least one member is required. Reference existence must be checked after JSON Schema validation.",
+                    "examples": [
+                        [
+                            "frontend_bound"
+                        ]
+                    ]
+                }
+            },
+            "required": [
+                "title",
+                "description",
+                "metrics"
+            ],
+            "additionalProperties": false
+        },
+        "FunctionGroupMap": {
+            "type": "object",
+            "minProperties": 1,
+            "propertyNames": {
+                "$ref": "#/$defs/GroupIdentifier"
+            },
+            "additionalProperties": {
+                "$ref": "#/$defs/FunctionGroup"
+            },
+            "description": "Maps function-group names to function-group definitions. At least one group is required."
+        },
+        "MetricGroupMap": {
+            "type": "object",
+            "minProperties": 1,
+            "propertyNames": {
+                "$ref": "#/$defs/GroupIdentifier"
+            },
+            "additionalProperties": {
+                "$ref": "#/$defs/MetricGroup"
+            },
+            "description": "Maps metric-group names to metric-group definitions. At least one group is required. Function groups and metric groups are separate collections and may use the same name."
+        },
+        "Groups": {
+            "type": "object",
+            "description": "Contains the function groups used to organise events and the metric groups used to organise metrics. Both collections must contain at least one group.",
+            "properties": {
+                "function": {
+                    "$ref": "#/$defs/FunctionGroupMap",
+                    "description": "Groups that classify events by processor function or subsystem."
+                },
+                "metrics": {
+                    "$ref": "#/$defs/MetricGroupMap",
+                    "description": "Groups that classify metrics for discovery and use by analysis methodologies."
+                }
+            },
+            "required": [
+                "function",
+                "metrics"
+            ],
+            "additionalProperties": false
+        },
+        "StageGroupList": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/GroupIdentifier"
+            },
+            "uniqueItems": true,
+            "description": "Metric-group identifiers, each resolving to a key in the root $.groups.metrics map. Membership is a set: duplicates are invalid. List order may guide presentation but does not change membership. The list may be empty. Reference existence requires semantic validation after JSON Schema validation."
+        },
+        "StageMap": {
+            "type": "object",
+            "properties": {
+                "stage_1": {
+                    "$ref": "#/$defs/StageGroupList",
+                    "description": "Metric groups for bottleneck identification using hierarchical pipeline stall analysis. Stage 1 may contain several hierarchy levels; stages are not hierarchy levels."
+                },
+                "stage_2": {
+                    "$ref": "#/$defs/StageGroupList",
+                    "description": "Metric groups for microarchitecture exploration and resource-effectiveness analysis. They may be used independently of Stage 1 and need not be referenced by the decision tree. The list may be empty."
+                }
+            },
+            "required": [
+                "stage_1",
+                "stage_2"
+            ],
+            "additionalProperties": false,
+            "description": "The two stages of the Arm CPU Topdown methodology. Both lists are required and reference $.groups.metrics. A group must not belong to both stages; disjoint membership requires semantic validation after JSON Schema validation. List order may guide presentation, but does not require collection in that order or make Stage 1 a prerequisite for Stage 2."
+        },
+        "NextItem": {
+            "anyOf": [
+                {
+                    "$ref": "#/$defs/MetricIdentifier"
+                },
+                {
+                    "$ref": "#/$defs/GroupIdentifier"
+                }
+            ],
+            "description": "Name of either another Stage 1 metric node in the same decision tree or a terminal Stage 2 metric group. A metric target must match a name in this tree's metrics array. A group target must exist in $.groups.metrics and belong to this methodology's metric_grouping.stage_2 list. Reference existence and stage membership require semantic validation after JSON Schema validation.",
+            "examples": [
+                "frontend_bound",
+                "Backend"
+            ]
         },
         "MetricTree": {
-            "additionalProperties": false,
-            "description": "MetricTree model dataclass",
-            "example": {
-                "metrics": [
-                    {
-                        "group": "root_node_group",
-                        "name": "root_node",
-                        "next_items": [
-                            "Next_Root_Node"
-                        ],
-                        "sample_events": [
-                            "ROOT_NODE_EVENT"
-                        ]
-                    }
-                ]
-            },
+            "type": "object",
+            "description": "One Stage 1 metric node in the Arm CPU Topdown decision tree. name identifies the metric evaluated at the node, group identifies its Stage 1 metric group, and next_items recommends further metric nodes or Stage 2 metric groups.",
             "properties": {
                 "name": {
-                    "description": "Metric name",
-                    "pattern": "^\\w+$",
-                    "title": "Name",
-                    "type": "string"
+                    "$ref": "#/$defs/MetricIdentifier",
+                    "description": "Identifier of the metric evaluated at this node; it must exist as a key in the root $.metrics map. It also identifies this node and must be unique among node names in this decision tree. Reference existence and uniqueness by name require semantic validation after JSON Schema validation.",
+                    "examples": [
+                        "frontend_bound"
+                    ]
                 },
                 "group": {
-                    "description": "Metric groups the metric belong to",
-                    "pattern": "^\\w+$",
-                    "title": "Group",
-                    "type": "string"
+                    "$ref": "#/$defs/GroupIdentifier",
+                    "description": "Identifier of this node's metric group, resolving to a key in the root $.groups.metrics map. The group must contain this node's metric and belong to this methodology's metric_grouping.stage_1 list. Reference existence and both membership checks require semantic validation after JSON Schema validation.",
+                    "examples": [
+                        "Top_Level"
+                    ]
                 },
                 "next_items": {
-                    "description": "leaves of the node",
+                    "type": "array",
                     "items": {
-                        "pattern": "^\\w+$",
-                        "type": "string"
+                        "$ref": "#/$defs/NextItem"
                     },
-                    "title": "Next Items",
-                    "type": "array"
+                    "minItems": 0,
+                    "uniqueItems": true,
+                    "description": "Names of subsequent Stage 1 metric nodes or terminal Stage 2 metric groups, in traversal order. Duplicates are invalid. An empty list ends this branch without recommending further analysis; it does not prevent independent use of Stage 2 groups.",
+                    "examples": [
+                        [],
+                        [
+                            "backend_bound",
+                            "Frontend"
+                        ]
+                    ]
                 },
                 "sample_events": {
-                    "description": "Events for sampling if the bottleneck is detected at this specific metric node",
+                    "type": "array",
                     "items": {
-                        "pattern": "^\\w+$",
-                        "type": "string"
+                        "$ref": "#/$defs/EventIdentifier"
                     },
-                    "title": "Sample Events",
-                    "type": "array"
+                    "minItems": 0,
+                    "uniqueItems": true,
+                    "description": "Events recommended for sampling when this node identifies a bottleneck. The list may be empty and must not contain duplicates. Each identifier must exist as a key in the root $.events map; reference existence requires semantic validation after JSON Schema validation.",
+                    "examples": [
+                        [],
+                        [
+                            "INST_RETIRED"
+                        ]
+                    ]
                 }
             },
             "required": [
@@ -637,128 +746,90 @@
                 "next_items",
                 "sample_events"
             ],
-            "title": "MetricTree",
-            "type": "object"
+            "additionalProperties": false
         },
-        "PMUSpecification": {
-            "additionalProperties": false,
-            "description": "PMUSpecification output dataclass",
+        "DecisionTree": {
+            "type": "object",
+            "description": "Stage 1 bottleneck-analysis graph with recommendations for further analysis. root_nodes lists its roots and metrics defines its Stage 1 metric nodes. Non-root nodes may have multiple parents. Metric-to-metric links must not form cycles, including self-links; this applies to all declared nodes, not only those reachable from a root. Cycle detection requires semantic validation after JSON Schema validation. Terminal group references recommend Stage 2 groups; the graph need not reference every Stage 2 group.",
             "properties": {
-                "$schema": {
-                    "title": "$schema",
-                    "type": "string"
-                  },
-                "_type": {
-                    "const": "PMU_Specification",
-                    "default": "PMU_Specification",
-                    "enum": [
-                        "PMU_Specification"
-                    ],
-                    "title": " Type",
-                    "type": "string"
-                },
-                "document": {
-                    "$ref": "#/$defs/DocumentMetadata",
-                    "description": "Document metadata"
-                },
-                "product_configuration": {
-                    "description": "A collection of configuration parameters",
-                    "patternProperties": {
-                        "^\\w+$": {}
+                "root_nodes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/MetricIdentifier"
                     },
-                    "title": "Product Configuration",
-                    "type": "object"
-                },
-                "events": {
-                    "description": "PMU events supported by the CPU",
-                    "patternProperties": {
-                        "^\\w+$": {
-                            "anyOf": [
-                                {
-                                    "$ref": "#/$defs/PrivateEvent"
-                                },
-                                {
-                                    "$ref": "#/$defs/Event"
-                                }
-                            ]
-                        }
-                    },
-                    "title": "Events",
-                    "type": "object"
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "description": "Names of Stage 1 root nodes in this same decision tree, in default traversal order. Each name must match a node name in this tree's metrics array and a key in the root $.metrics map. At least one root is required; multiple roots are allowed and duplicates are invalid. A root must have no incoming metric-node links: no node in this decision tree may reference it in next_items. Reference existence, Stage 1 membership and absence of incoming links require semantic validation after JSON Schema validation.",
+                    "examples": [
+                        [
+                            "frontend_bound"
+                        ]
+                    ]
                 },
                 "metrics": {
-                    "description": "Derived metrics supported by the CPU",
-                    "patternProperties": {
-                        "^\\w+$": {
-                            "$ref": "#/$defs/Metric"
-                        }
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/MetricTree"
                     },
-                    "title": "Metrics",
-                    "type": "object"
-                },
-                "groups": {
-                    "additionalProperties": false,
-                    "description": "Groups of events and metrics",
-                    "properties": {
-                        "function": {
-                            "description": "Functional groups for events",
-                            "patternProperties": {
-                                "^\\w+$": {
-                                    "$ref": "#/$defs/GroupCategory"
-                                }
-                            },
-                            "type": "object"
-                        },
-                        "metrics": {
-                            "description": "Metrics groups",
-                            "patternProperties": {
-                                "^\\w+$": {
-                                    "$ref": "#/$defs/GroupCategory"
-                                }
-                            },
-                            "type": "object"
-                        }
-                    },
-                    "title": "Groups",
-                    "type": "object"
-                },
-                "methodologies": {
-                    "description": "Methodologies stages and decision tree",
-                    "patternProperties": {
-                        "^\\w+$": {
-                            "$ref": "#/$defs/Methodology"
-                        }
-                    },
-                    "title": "Methodologies",
-                    "type": "object"
-                },
-                "instances": {
-                    "default": null,
-                    "description": "Instances in PMU specification",
-                    "patternProperties": {
-                        "^\\w+$": {
-                            "$ref": "#/$defs/PMUSpecification"
-                        }
-                    },
-                    "title": "Instances",
-                    "type": "object"
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "description": "Definitions of the metric nodes in this decision tree. At least one node is required. Each node name must be unique within this array, even when the other node properties differ. Every node must be reachable from at least one declared root by following metric-node next_items links; a root is reachable from itself. This requirement applies to decision nodes, not to every Stage 2 metric group. uniqueItems rejects identical objects only; uniqueness by name, reference consistency and reachability require semantic validation after JSON Schema validation."
                 }
             },
             "required": [
-                "document",
-                "product_configuration",
-                "events",
-                "metrics",
-                "groups",
-                "methodologies"
+                "root_nodes",
+                "metrics"
             ],
-            "title": "PMUSpecification",
-            "type": "object"
+            "additionalProperties": false
+        },
+        "Methodology": {
+            "type": "object",
+            "description": "The Arm CPU Topdown performance analysis methodology: Stage 1 identifies potential CPU bottlenecks, and Stage 2 explores CPU resources in more detail. The decision tree recommends further analysis; Stage 2 groups can also be used independently.",
+            "properties": {
+                "title": {
+                    "$ref": "#/$defs/NonWhitespaceString",
+                    "description": "Human-readable methodology title.",
+                    "examples": [
+                        "Topdown methodology"
+                    ]
+                },
+                "description": {
+                    "$ref": "#/$defs/NonWhitespaceString",
+                    "description": "Human-readable methodology purpose and workflow.",
+                    "examples": [
+                        "Guides staged performance analysis."
+                    ]
+                },
+                "metric_grouping": {
+                    "$ref": "#/$defs/StageMap",
+                    "description": "Assigns metric groups to Stage 1 bottleneck identification or Stage 2 microarchitecture exploration."
+                },
+                "decision_tree": {
+                    "$ref": "#/$defs/DecisionTree",
+                    "description": "Stage 1 metric nodes and entry points, with recommendations for further Stage 1 nodes or Stage 2 groups."
+                }
+            },
+            "required": [
+                "title",
+                "description",
+                "metric_grouping",
+                "decision_tree"
+            ],
+            "additionalProperties": false
+        },
+        "MethodologyMap": {
+            "type": "object",
+            "properties": {
+                "topdown_methodology": {
+                    "$ref": "#/$defs/Methodology",
+                    "description": "The required Arm CPU Topdown methodology, with Stage 1 bottleneck identification and Stage 2 microarchitecture exploration."
+                }
+            },
+            "required": [
+                "topdown_methodology"
+            ],
+            "additionalProperties": false,
+            "description": "Contains the Arm CPU Topdown methodology defined by this CPU telemetry contract."
         }
-    },
-    "allOf": [
-        {
-            "$ref": "#/$defs/PMUSpecification"
-        }
-    ]
+    }
 }

@@ -1,11 +1,26 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright 2025 Arm Limited
+# Copyright 2025-2026 Arm Limited
 
 import copy
+import json
 import logging
+from pathlib import Path
+
 import pytest
+from jsonschema import Draft202012Validator
 
 from topdown_tool.cpu_probe.cpu_model import TelemetrySpecification
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
+SCHEMA_DIR = REPOSITORY_ROOT / "data" / "pmu" / "cpu" / "schemas"
+SPECIFICATION_DIR = REPOSITORY_ROOT / "data" / "pmu" / "cpu" / "specifications"
+SCHEMA_NAMES = ("v1.0.schema.json", "v1.2.schema.json")
+
+
+def load_json(path: Path):
+    with path.open(encoding="utf-8") as stream:
+        return json.load(stream)
 
 
 @pytest.fixture
@@ -290,3 +305,21 @@ def test_decision_tree_duplicate_metric_nodes(valid_document):
         match="Decision tree metrics contain duplicate node names: \\('METRIC1',\\)",
     ):
         TelemetrySpecification.model_validate(doc, context={"duplicate_policy": "error"})
+
+
+# Validate complete shipped documents directly and through the production loader.
+# Keep $schema intact for schema validation; the loader removes it for the model.
+# Discover specifications added to the directory without fixing their count.
+def test_all_shipped_cpu_specifications_validate_with_selected_schema():
+    validators = {
+        name: Draft202012Validator(load_json(SCHEMA_DIR / name)) for name in SCHEMA_NAMES
+    }
+    specification_paths = sorted(SPECIFICATION_DIR.rglob("*.json"))
+    assert specification_paths
+
+    for path in specification_paths:
+        document = load_json(path)
+        selector = document["$schema"]
+        validators[selector].validate(document)
+        model = TelemetrySpecification.load_from_json_file(path, SCHEMA_DIR)
+        assert isinstance(model, TelemetrySpecification)

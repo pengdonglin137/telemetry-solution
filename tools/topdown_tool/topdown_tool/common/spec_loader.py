@@ -70,9 +70,11 @@ def load_spec_json(
                 f"File not found: {exc.filename}. Please check that the file exists."
             ) from exc
 
-        # JSON Schema validation ignores $schema; remove it unless explicitly retained.
+        # Preserve the selector when the schema declares it as a document property.
+        # Other schemas retain the existing loader-metadata behavior.
         schema_instance = dict(instance)
-        schema_instance.pop("$schema", None)
+        if "$schema" not in schema.get("properties", {}):
+            schema_instance.pop("$schema", None)
         try:
             jsonschema.validate(instance=schema_instance, schema=schema)
         except jsonschema.exceptions.ValidationError as exc:
