@@ -47,6 +47,9 @@
     "0x41d90": {
         "name": "lumex/arm_c1_premium_r0p0_pmu"
     },
+    "0x41d96": {
+        "name": "css_mobile_2/arm_c2_ultra_r0p0_pmu"
+    },
     "0x410fd8b0": {
         "name": "lumex/arm_c1_pro_r0p0_pmu"
     },
