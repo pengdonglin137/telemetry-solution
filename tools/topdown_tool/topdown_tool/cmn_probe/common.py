@@ -9,10 +9,9 @@ Common data classes for use with CMN
 
 from dataclasses import dataclass
 from functools import total_ordering
-from typing import Any, Dict, FrozenSet, List, Optional, Union
+from typing import Any, ClassVar, Dict, FrozenSet, List, Optional, Union
 
 from topdown_tool.perf.event_scheduler import CollectBy
-from topdown_tool.perf.perf import PerfEvent
 
 
 # pylint: disable=too-many-instance-attributes
@@ -181,7 +180,7 @@ class JsonTopdownGroup:
 @total_ordering
 @dataclass(frozen=True)
 # pylint: disable=duplicate-code
-class Event(PerfEvent):
+class Event:
     name: str
     title: str
     description: str
@@ -191,6 +190,8 @@ class Event(PerfEvent):
     occupid: Optional[int]
     nodeid: Optional[int]
     xp_id: Optional[int] = None
+
+    requires_hardware_counter: ClassVar[bool] = True
 
     LINUX_FIX_MAP = {13: 10}
 
@@ -319,16 +320,13 @@ class Event(PerfEvent):
             event_str += ",bynodeid" + ",nodeid=" + hex(self.nodeid)
         return f"arm_cmn_{self.cmn_index}/{event_str}/"
 
-    def is_software_event(self) -> bool:
-        return False
-
 
 # Note: We can't use `order=True` otherwise python's type system scream at us.
 # There is no elegant solution to overcome this issue.
 @total_ordering
 @dataclass(frozen=True)
 # pylint: disable=invalid-name
-class Watchpoint(PerfEvent):
+class Watchpoint:
     name: str
     title: str
     description: str
@@ -341,6 +339,8 @@ class Watchpoint(PerfEvent):
     xp_id: Optional[int]
     port: Optional[int]
     device: Optional[str]
+
+    requires_hardware_counter: ClassVar[bool] = True
 
     mesh_flit_dir_mapping = {
         0: "up",
@@ -488,6 +488,3 @@ class Watchpoint(PerfEvent):
         )
         event_str += ",wp_val=" + hex(self.wp_val if self.wp_val >= 0 else self.wp_val + 2 ** 64)
         return f"arm_cmn_{self.cmn_index}/{event_str}/"
-
-    def is_software_event(self) -> bool:
-        return False

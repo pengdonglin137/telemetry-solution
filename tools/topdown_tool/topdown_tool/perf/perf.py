@@ -21,12 +21,13 @@ from typing import (
     List,
     Union,
     Dict,
-    TypeVar,
     Protocol,
     Tuple,
+    TypeVar,
 )
 from pathlib import Path
 from dataclasses import dataclass
+
 
 E_contra = TypeVar("E_contra", contravariant=True)
 
@@ -41,12 +42,14 @@ class PerfEvent(Protocol[E_contra]):
         name (str): The name of the performance event.
     """
 
-    name: str
+    @property
+    def name(self) -> str: ...
 
     def perf_name(self) -> str: ...
-    def is_software_event(self) -> bool: ...
 
     def __lt__(self, other: E_contra) -> bool: ...
+
+    def __hash__(self) -> int: ...
 
 
 PerfEventGroup = Tuple[PerfEvent, ...]

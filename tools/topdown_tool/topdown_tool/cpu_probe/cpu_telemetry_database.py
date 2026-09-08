@@ -25,7 +25,7 @@ The module is useful for integrating CPU performance specification into analysis
 
 from dataclasses import dataclass
 from functools import cached_property, total_ordering
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
+from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 from topdown_tool.common import normalize_str
 from topdown_tool.common.close_match import (
@@ -38,14 +38,13 @@ from topdown_tool.cpu_probe.cpu_model import (
     TopdownMethodology as TopdownMethodologyModel,
 )
 from topdown_tool.cpu_probe.common import CpuEventOptions, CpuModifier
-from topdown_tool.perf import PerfEvent
 
 
 # Note: We can't use `order=True` otherwise python's type system scream at us.
 # There is no elegant solution to overcome this issue.
 @total_ordering
 @dataclass(frozen=True)
-class Event(PerfEvent):
+class Event:
     """Represents a performance-monitoring event.
 
     Attributes (data class properties):
@@ -61,15 +60,14 @@ class Event(PerfEvent):
     code: int
     modifiers: Optional[Tuple[CpuModifier, ...]]
 
+    requires_hardware_counter: ClassVar[bool] = True
+
     def perf_name(self) -> str:
         """Return a performance-compatible event name."""
         modifiers: Optional[str] = None
         if self.modifiers is not None and len(self.modifiers) > 0:
             modifiers = "".join(map(str, self.modifiers))
         return f"r{self.code:x}{':' + modifiers if modifiers is not None else ''}"
-
-    def is_software_event(self) -> bool:
-        return False
 
     def __repr__(self) -> str:
         return self.name

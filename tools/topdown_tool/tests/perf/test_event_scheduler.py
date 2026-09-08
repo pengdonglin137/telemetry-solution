@@ -15,19 +15,12 @@ from topdown_tool.perf.event_scheduler import (
     EventScheduler,
     GroupScheduleError,
 )
-from topdown_tool.perf import PerfEvent
 
 
 @dataclass(frozen=True, order=True)
-class DummyEvent(PerfEvent):
+class DummyEvent:
     name: str
-    software: bool = False
-
-    def perf_name(self) -> str:
-        return self.name
-
-    def is_software_event(self) -> bool:
-        return self.software
+    requires_hardware_counter: bool = True
 
     def __repr__(self) -> str:
         return self.name
@@ -36,8 +29,8 @@ class DummyEvent(PerfEvent):
 DummyPerfEventGroup = Tuple[DummyEvent, ...]
 
 
-def make_event(name, software: bool = False):
-    return DummyEvent(name, software=software)
+def make_event(name: str, software: bool = False) -> DummyEvent:
+    return DummyEvent(name, requires_hardware_counter=not software)
 
 
 @pytest.fixture
@@ -313,16 +306,13 @@ import json
 from dataclasses import dataclass
 
 from topdown_tool.cpu_probe.common import CollectBy
-from topdown_tool.perf import PerfEvent
 from topdown_tool.perf.event_scheduler import EventScheduler
 
 
 @dataclass(frozen=True, order=True)
-class OrderedEvent(PerfEvent):
+class OrderedEvent:
     name: str
-
-    def perf_name(self) -> str:
-        return self.name
+    requires_hardware_counter: bool = True
 
 
 events = {name: OrderedEvent(name) for name in ("A", "B", "C", "D")}
@@ -389,6 +379,17 @@ def test_metric_schedule_rejects_metric_larger_than_max_events():
 
     assert exc_info.value.unique_events == set(metric)
     assert exc_info.value.available_events == 3
+
+
+def test_metric_schedule_ignores_software_events_for_capacity():
+    hw = make_event("HW")
+    sw1 = make_event("SW1", software=True)
+    sw2 = make_event("SW2", software=True)
+    metric = (hw, sw1, sw2)
+
+    scheduler = EventScheduler([(metric,)], CollectBy.METRIC, max_events=1)
+
+    assert scheduler.optimized_event_groups == [metric]
 
 
 def test_metric_schedule_accepts_metric_equal_to_max_events():

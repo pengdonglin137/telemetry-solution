@@ -2,12 +2,13 @@
 # Copyright 2025 Arm Limited
 
 """
-Module for scheduling and managing hardware performance event groups.
+Module for scheduling and managing event groups.
 
-This module provides an Event Scheduler designed to optimize and manage the sets of hardware
-performance events for tools such as Perf. Modern performance profiling relies on capturing groups
-of events simultaneously for each metric to ensure measurement accuracy. However, due to hardware
-limitations (e.g. a restricted number of PMU counters), only a limited number of events can be recorded in one go.
+This module provides an Event Scheduler designed to optimize and manage event sets independently
+of the backend that acquires them. Related events may need to be captured simultaneously for each
+metric to ensure measurement accuracy. Events that require hardware counters are constrained by
+the available counter capacity, while events acquired through other mechanisms remain in the same
+logical schedule without consuming that capacity.
 
 Motivation & Context:
   - Grouping events per metric ensures that related events are captured together, thereby ensuring the
@@ -25,16 +26,16 @@ Key Data Structures:
   - Sequence[Sequence[Tuple[E, ...]]]: Represents all metric groups; this is the typical input for the scheduler.
 
 Output and Consumption:
-  The scheduler produces an iterator of event groups that can be passed directly to Perf for event capture.
-  It also builds helper "retriever" functions to map the aggregated Perf output back to the original metrics,
-  easing the extraction of measurement data.
+  The scheduler produces an iterator of event groups for an acquisition backend. It also builds
+  helper "retriever" functions to map captured output back to the original metrics, easing the
+  extraction of measurement data.
 
 Example Workflow:
     scheduler = EventScheduler(groups, collect_by=CollectBy.GROUP, max_events=6)
     for event_chunk in scheduler.get_event_group_iterator(split=True):
-        perf.start(event_chunk)
+        backend.start(event_chunk)
         # perform workload measurement
-    results = scheduler.retrieve_event_results(perf_result, group, metric_events)
+    results = scheduler.retrieve_event_results(captured_results, group, metric_events)
 
 Classes:
   CollectBy: Enumeration for scheduling strategy.
@@ -45,26 +46,44 @@ Classes:
 
 from enum import Enum
 from typing import (
+    Any,
     Callable,
     Dict,
+    Generic,
     Iterable,
     List,
     Optional,
+    Protocol,
     Sequence,
     Set,
     Tuple,
     TypeVar,
-    Generic,
 )
-from topdown_tool.perf import PerfEvent
 
 
-E = TypeVar("E", bound=PerfEvent)
+class SchedulerEvent(Protocol):
+    """Structural contract required by the event scheduler.
+
+    Events declare whether they consume a hardware performance counter.
+    """
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def requires_hardware_counter(self) -> bool: ...
+
+    def __lt__(self, other: Any) -> bool: ...
+
+    def __hash__(self) -> int: ...
+
+
+E = TypeVar("E", bound=SchedulerEvent)
 
 
 def _hardware_event_count(events: Tuple[E, ...]) -> int:
-    """Count hardware events, excluding software events from capacity checks."""
-    return sum(1 for event in events if not event.is_software_event())
+    """Count events acquired through hardware performance counters."""
+    return sum(1 for event in events if event.requires_hardware_counter)
 
 
 class CollectBy(Enum):
@@ -211,11 +230,11 @@ class EventGroupIterator(Generic[E]):
 
 
 class EventScheduler(Generic[E]):
-    """Scheduler for optimizing and managing performance event groups.
+    """Scheduler for optimizing and managing event groups.
 
     Motivation:
-      Perf requires the simultaneous capture of all events corresponding to a metric to ensure precise data
-      recording. This scheduler automates the grouping of events so that they adhere to hardware limitations
+      Metrics may require simultaneous acquisition of related events to ensure precise data recording.
+      This scheduler automates the grouping of events so that they adhere to hardware limitations
       (via the max_events parameter) while preserving metric integrity.
 
     Collection Strategies:
@@ -229,16 +248,16 @@ class EventScheduler(Generic[E]):
       - Sequence[Sequence[Tuple[E, ...]]]: All groups of metrics; the scheduler’s input.
 
     Output and Retrievers:
-      The scheduler outputs an iterator of optimized event groups that can be passed directly to Perf.
-      Additionally, retriever functions are constructed to extract and map the recorded values back to the
-      original metric definitions, even when events are merged or reordered.
+      The scheduler outputs an iterator of optimized event groups for an acquisition backend.
+      Additionally, retriever functions are constructed to extract and map recorded values back to
+      the original metric definitions, even when events are merged or reordered.
 
     Example:
         scheduler = EventScheduler(groups, collect_by=CollectBy.GROUP, max_events=6)
         for event_chunk in scheduler.get_event_group_iterator(split=True):
-            perf.start(event_chunk)
+            backend.start(event_chunk)
             # ... run workload ...
-        results = scheduler.retrieve_event_results(perf_result, group, metric_events)
+        results = scheduler.retrieve_event_results(captured_results, group, metric_events)
 
     Attributes:
         groups: The raw input event groups.
@@ -318,7 +337,7 @@ class EventScheduler(Generic[E]):
             metrics = [m for g in self.groups for m in g]
             for metric_events in metrics:
                 unique_events = set(metric_events)
-                if len(unique_events) > self.max_events:
+                if _hardware_event_count(tuple(unique_events)) > self.max_events:
                     raise GroupScheduleError(unique_events, self.max_events)
             return self._optimize_event_groups(metrics)
 
