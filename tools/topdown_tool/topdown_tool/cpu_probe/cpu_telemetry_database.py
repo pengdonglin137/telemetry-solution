@@ -68,6 +68,9 @@ class Event(PerfEvent):
             modifiers = "".join(map(str, self.modifiers))
         return f"r{self.code:x}{':' + modifiers if modifiers is not None else ''}"
 
+    def is_software_event(self) -> bool:
+        return False
+
     def __repr__(self) -> str:
         return self.name
 

@@ -319,6 +319,9 @@ class Event(PerfEvent):
             event_str += ",bynodeid" + ",nodeid=" + hex(self.nodeid)
         return f"arm_cmn_{self.cmn_index}/{event_str}/"
 
+    def is_software_event(self) -> bool:
+        return False
+
 
 # Note: We can't use `order=True` otherwise python's type system scream at us.
 # There is no elegant solution to overcome this issue.
@@ -485,3 +488,6 @@ class Watchpoint(PerfEvent):
         )
         event_str += ",wp_val=" + hex(self.wp_val if self.wp_val >= 0 else self.wp_val + 2 ** 64)
         return f"arm_cmn_{self.cmn_index}/{event_str}/"
+
+    def is_software_event(self) -> bool:
+        return False

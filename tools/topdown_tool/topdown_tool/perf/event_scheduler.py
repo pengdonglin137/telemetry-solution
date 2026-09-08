@@ -62,6 +62,11 @@ from topdown_tool.perf import PerfEvent
 E = TypeVar("E", bound=PerfEvent)
 
 
+def _hardware_event_count(events: Tuple[E, ...]) -> int:
+    """Count hardware events, excluding software events from capacity checks."""
+    return sum(1 for event in events if not event.is_software_event())
+
+
 class CollectBy(Enum):
     """Enumeration for different collection strategies for performance events.
 
@@ -149,7 +154,7 @@ class EventGroupIterator(Generic[E]):
         current_chunk: List[Tuple[E, ...]] = []
         current_count = 0
         for group in self.event_groups:
-            group_len = len(group)
+            group_len = _hardware_event_count(group)
             if group_len > self.max_events:
                 raise ValueError("Too many events to capture without multiplexing")
             if current_chunk and current_count + group_len > self.max_events:
@@ -305,7 +310,7 @@ class EventScheduler(Generic[E]):
             res: List[Tuple[E, ...]] = []
             for group in self.groups:
                 group_events = self._group_events(group)
-                if len(group_events) > self.max_events:
+                if _hardware_event_count(group_events) > self.max_events:
                     raise GroupScheduleError(set(group_events), self.max_events)
                 res.append(group_events)
             return self._optimize_event_groups(res)
@@ -352,7 +357,7 @@ class EventScheduler(Generic[E]):
                 for j in range(i + 1, len(unique_groups)):
                     if not used[j]:
                         potential = merge_groups(candidate, unique_groups[j])
-                        if len(potential) <= self.max_events:
+                        if _hardware_event_count(potential) <= self.max_events:
                             candidate = potential
                             used[j] = True
                             merged_flag = True

@@ -21,9 +21,13 @@ from topdown_tool.perf import PerfEvent
 @dataclass(frozen=True, order=True)
 class DummyEvent(PerfEvent):
     name: str
+    software: bool = False
 
     def perf_name(self) -> str:
         return self.name
+
+    def is_software_event(self) -> bool:
+        return self.software
 
     def __repr__(self) -> str:
         return self.name
@@ -32,8 +36,8 @@ class DummyEvent(PerfEvent):
 DummyPerfEventGroup = Tuple[DummyEvent, ...]
 
 
-def make_event(name):
-    return DummyEvent(name)
+def make_event(name, software: bool = False):
+    return DummyEvent(name, software=software)
 
 
 @pytest.fixture
@@ -177,6 +181,15 @@ def test_group_schedule_error():
         EventScheduler([g], CollectBy.GROUP, max_events=6)
 
 
+def test_group_schedule_ignores_software_events_for_capacity():
+    hw = make_event("HW")
+    sw = make_event("SW", software=True)
+    group = ((hw, sw),)
+    scheduler = EventScheduler([group], CollectBy.GROUP, max_events=1)
+    assert len(scheduler.optimized_event_groups) == 1
+    assert set(scheduler.optimized_event_groups[0]) == {hw, sw}
+
+
 def test_no_split_behavior():
     e1 = make_event("E1")
     e2 = make_event("E2")
@@ -220,6 +233,20 @@ def test_split_behavior():
         next(it)
 
 
+def test_split_behavior_ignores_software_events_for_capacity():
+    hw1 = make_event("HW1")
+    hw2 = make_event("HW2")
+    sw = make_event("SW", software=True)
+    event_groups = [
+        (hw1, sw),
+        (hw2,),
+    ]
+    it = EventGroupIterator(event_groups, max_events=2, split=True)
+    assert next(it) == event_groups
+    with pytest.raises(StopIteration):
+        next(it)
+
+
 def test_group_larger_than_max_events():
     e1 = make_event("E1")
     e2 = make_event("E2")
@@ -230,6 +257,17 @@ def test_group_larger_than_max_events():
     ]
     with pytest.raises(ValueError):
         EventGroupIterator(event_groups, max_events=2, split=True)
+
+
+def test_group_larger_than_max_events_only_by_software_events_is_allowed():
+    hw = make_event("HW")
+    sw1 = make_event("SW1", software=True)
+    sw2 = make_event("SW2", software=True)
+    event_groups = [(hw, sw1, sw2)]
+    it = EventGroupIterator(event_groups, max_events=1, split=True)
+    assert next(it) == event_groups
+    with pytest.raises(StopIteration):
+        next(it)
 
 
 def test_greedy_merge_optimization():
@@ -379,6 +417,17 @@ def test_no_merge_edge_case():
     groups_sets = [set(g) for g in optimized]
     assert {e1, e2} in groups_sets
     assert {e3, e4} in groups_sets
+
+
+def test_merge_capacity_ignores_software_events():
+    e1 = make_event("E1")
+    e2 = make_event("E2")
+    sw = make_event("SW", software=True)
+    g1 = ((e1, sw),)
+    g2 = ((e2,),)
+    scheduler = EventScheduler([g1, g2], CollectBy.GROUP, max_events=2)
+    assert len(scheduler.optimized_event_groups) == 1
+    assert set(scheduler.optimized_event_groups[0]) == {e1, e2, sw}
 
 
 def test_retrieve_event_results_none():
