@@ -2,7 +2,7 @@
 
 All notable changes to the Telemetry Solution are documented in this file.
 
-## [2026.09] - not yet released
+## [2026.09]
 
 ### Breaking Changes
 
