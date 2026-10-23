@@ -3,8 +3,11 @@
 
 import logging
 import shlex
+import signal
+import threading
 import time
-from typing import NoReturn, Optional
+from contextlib import contextmanager
+from typing import Any, Iterator, NoReturn, Optional
 
 from topdown_tool.common.devlib_types import Target
 
@@ -13,6 +16,41 @@ def _rethrow_interrupt(exc: BaseException) -> NoReturn:
     if isinstance(exc, KeyboardInterrupt):
         raise InterruptedError from exc
     raise exc
+
+
+class InterruptGuard:
+    """Remember a Ctrl-C (SIGINT) that arrived while polling a remote target.
+
+    devlib can turn an exception raised inside one of its calls into an unrelated one
+    (observed: ``AttributeError`` from its async layer), which the polling helpers then treat
+    as an ordinary failure, so the first Ctrl-C was lost. The guard installs a SIGINT handler
+    that records the interrupt and raises ``InterruptedError`` (what ``main()`` handles), and
+    :meth:`check` raises it again if the original exception was swallowed.
+    """
+
+    def __init__(self) -> None:
+        self._event = threading.Event()
+
+    def _handler(self, _signum: int, _frame: Any) -> None:
+        self._event.set()
+        raise InterruptedError("Interrupted by user")
+
+    @contextmanager
+    def active(self) -> Iterator["InterruptGuard"]:
+        """Install the handler for the duration of the block (main thread only)."""
+        if threading.current_thread() is not threading.main_thread():
+            yield self
+            return
+        previous = signal.signal(signal.SIGINT, self._handler)
+        try:
+            yield self
+        finally:
+            signal.signal(signal.SIGINT, previous)
+
+    def check(self) -> None:
+        """Raise ``InterruptedError`` if a SIGINT was recorded."""
+        if self._event.is_set():
+            raise InterruptedError("Interrupted by user")
 
 
 # pylint: disable=too-many-branches
@@ -184,31 +222,35 @@ def remote_wait_for_pid_state(
 
     interval = max(poll_interval, 0.01)
     deadline = None if timeout is None else time.monotonic() + max(timeout, 0.0)
+    guard = InterruptGuard()
 
-    while True:
-        exists = False
-        try:
-            exists = remote_pid_exists(target, pid, as_root)
-        except (KeyboardInterrupt, InterruptedError) as exc:
-            _rethrow_interrupt(exc)
-        except Exception:  # pylint: disable=broad-exception-caught
+    with guard.active():
+        while True:
             exists = False
+            try:
+                exists = remote_pid_exists(target, pid, as_root)
+            except (KeyboardInterrupt, InterruptedError) as exc:
+                _rethrow_interrupt(exc)
+            except Exception:  # pylint: disable=broad-exception-caught
+                exists = False
+            guard.check()
 
-        if (present and exists) or (not present and not exists):
-            return True
+            if (present and exists) or (not present and not exists):
+                return True
 
-        if deadline is not None and time.monotonic() >= deadline:
-            return False
+            if deadline is not None and time.monotonic() >= deadline:
+                return False
 
-        try:
-            time.sleep(interval)
-        except (KeyboardInterrupt, InterruptedError) as exc:
-            _rethrow_interrupt(exc)
-        except Exception:  # pylint: disable=broad-exception-caught
-            return False
+            try:
+                time.sleep(interval)
+            except (KeyboardInterrupt, InterruptedError) as exc:
+                _rethrow_interrupt(exc)
+            except Exception:  # pylint: disable=broad-exception-caught
+                return False
 
 
 __all__ = [
+    "InterruptGuard",
     "remote_cleanup_target_temp_dirs",
     "remote_read_text",
     "remote_pid_exists",

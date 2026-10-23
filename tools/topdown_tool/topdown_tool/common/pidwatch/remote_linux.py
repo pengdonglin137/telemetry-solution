@@ -18,6 +18,7 @@ Protocol alignment:
 import time
 from typing import Optional, Set
 from topdown_tool.common.remote_utils import (
+    InterruptGuard,
     remote_cleanup_target_temp_dirs,
     remote_pid_exists,
 )
@@ -73,13 +74,17 @@ class RemoteLinuxPidWatcher:
         if self._closed or not self._watched:
             return None
 
-        while self._watched and not self._closed:
-            # Check each PID; return the first one that disappeared
-            for pid in list(self._watched):
-                if not remote_pid_exists(self._target, pid, self._as_root):
-                    self._watched.discard(pid)
-                    return pid
-            time.sleep(self._poll)
+        guard = InterruptGuard()
+        with guard.active():
+            while self._watched and not self._closed:
+                # Check each PID; return the first one that disappeared
+                for pid in list(self._watched):
+                    exists = remote_pid_exists(self._target, pid, self._as_root)
+                    guard.check()
+                    if not exists:
+                        self._watched.discard(pid)
+                        return pid
+                time.sleep(self._poll)
 
         return None
 
