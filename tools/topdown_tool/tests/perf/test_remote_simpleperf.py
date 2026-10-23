@@ -99,9 +99,12 @@ def test_parse_ignores_incomplete_trailing_block_and_noise() -> None:
     assert blocks[0].counters[("r8", -1, 0)].count == 5
 
 
-def test_parse_handles_modifiers_in_event_names() -> None:
-    blocks = parse_simpleperf_verbose_csv(_block([_line("r0011:u", -1, 3, 42, 10, 10)]))
-    assert blocks[0].counters[("r0011:u", -1, 3)].count == 42
+def test_parse_strips_modifiers_from_event_names() -> None:
+    # simpleperf may print the event with or without its modifier; both map to the base name.
+    text = _block([_line("r0011:u", -1, 3, 42, 10, 10), _line("r22", -1, 3, 7, 10, 10)])
+    counters = parse_simpleperf_verbose_csv(text)[0].counters
+    assert counters[("r0011", -1, 3)].count == 42
+    assert counters[("r22", -1, 3)].count == 7
 
 
 # Scaling -----------------------------------------------------------------------------
@@ -173,8 +176,8 @@ def test_unique_event_names_pads_repeated_raw_events() -> None:
     assert unique_event_names(groups) == [
         ["r11", "r8"],
         ["r011", "r1b"],
-        ["r11:u", "r08"],
-        ["r0011"],
+        ["r0011:u", "r08"],
+        ["r00011"],
     ]
 
 
@@ -366,6 +369,26 @@ def test_recorder_pid_never_ran_warns(tmp_path, android_target, caplog) -> None:
 
     assert records[Uncore()][None][group] == (0.0,)
     assert any("did not run on CPUs 7" in m for m in caplog.messages)
+
+
+def test_recorder_with_modifiers(tmp_path, android_target) -> None:
+    # Regression: simpleperf drops ":u" from the event names in its verbose output.
+    output = _block(
+        [
+            _line("r11", -1, 0, 100, 10, 10),
+            _line("r8", -1, 0, 50, 10, 10),
+            _line("r011", -1, 0, 101, 10, 10),
+        ]
+    )
+    target = android_target({"perf.stat-0": output})
+    perf = RemoteSimpleperf(target=target)
+    g1 = (_Event("r11:u"), _Event("r8:u"))
+    g2 = (_Event("r11:u"),)
+    perf.start((g1, g2), str(tmp_path / "perf.stat"), cores=[0])
+    assert "--group r11:u,r8:u -e r011:u" in target.background_calls[0]
+    perf.stop()
+
+    assert perf.get_perf_result()[Cpu(0)][None] == {g1: (100.0, 50.0), g2: (101.0,)}
 
 
 def test_recorder_interval_timestamps(tmp_path, android_target) -> None:

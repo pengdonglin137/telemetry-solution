@@ -57,6 +57,12 @@ _RAW_EVENT = re.compile(r"^r(?P<code>[0-9a-fA-F]+)$")
 #: its ``time_running`` is the time each thread ran on each CPU.
 REFERENCE_EVENT = "task-clock"
 
+
+def _base_name(event_name: str) -> str:
+    """Return ``event_name`` without its ``:modifier`` suffix."""
+    return event_name.split(":", 1)[0]
+
+
 _READY_TIMEOUT_S = 15.0
 _READY_POLL_S = 0.02
 _PROBE_DURATION_S = 0.05
@@ -108,7 +114,9 @@ def parse_simpleperf_verbose_csv(text: str) -> List[SimpleperfBlock]:
         match = _VERBOSE_LINE.match(line)
         if match is None or current is None:
             continue
-        key = (match.group("name"), int(match.group("tid")), int(match.group("cpu")))
+        # simpleperf prints the event type without its ":u"/":k" modifier in verbose lines.
+        name = _base_name(match.group("name"))
+        key = (name, int(match.group("tid")), int(match.group("cpu")))
         counter = current.counters.setdefault(key, _Counter())
         counter.count += int(match.group("count"))
         counter.enabled += int(match.group("enabled"))
@@ -173,8 +181,9 @@ def scale_block(  # pylint: disable=too-many-locals
 def unique_event_names(events: Sequence[PerfEventGroup]) -> List[List[str]]:
     """Give each event occurrence a distinct simpleperf name.
 
-    Raw events (``rNN`` with an optional ``:modifier``) that appear more than once get leading
-    zeros on their code.
+    Raw events (``rNN`` with an optional ``:modifier``) whose base name appears more than once
+    get leading zeros on their code. Uniqueness is checked without the modifier, because
+    simpleperf reports counters by base name (``r11:u`` is printed as ``r11``).
 
     Raises:
         ValueError: If a non-raw event name appears more than once.
@@ -185,12 +194,12 @@ def unique_event_names(events: Sequence[PerfEventGroup]) -> List[List[str]]:
         group_names: List[str] = []
         for event in group:
             perf_name = event.perf_name()
-            occurrence = seen.get(perf_name, 0)
-            seen[perf_name] = occurrence + 1
+            base, sep, modifier = perf_name.partition(":")
+            occurrence = seen.get(base, 0)
+            seen[base] = occurrence + 1
             if occurrence == 0:
                 group_names.append(perf_name)
                 continue
-            base, sep, modifier = perf_name.partition(":")
             raw = _RAW_EVENT.match(base)
             if raw is None:
                 raise ValueError(
@@ -494,7 +503,9 @@ class RemoteSimpleperf(LinuxPerfBase):
                     cpu = location.id if isinstance(location, Cpu) else None
                     results = records[location].setdefault(timestamp, PerfResults())
                     for group, names in zip(recorder.events, recorder.names):
-                        results[tuple(group)] = tuple(values.get((name, cpu)) for name in names)
+                        results[tuple(group)] = tuple(
+                            values.get((_base_name(name), cpu)) for name in names
+                        )
         return records
 
     def _report_pid_runtime(self, blocks: Sequence[SimpleperfBlock]) -> None:
