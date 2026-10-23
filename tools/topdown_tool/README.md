@@ -171,6 +171,52 @@ topdown-tool --target-type ssh --target-config ssh.json -- ./a.out
 
 The remote options must be supplied on each invocation and they replace the local perf runner with the remote implementation.
 
+### Android devices (simpleperf)
+
+Android ships `simpleperf` instead of Linux `perf`. With `--target-type adb`, the tool counts
+with simpleperf by default: `/system/bin/simpleperf` if present, otherwise the copy bundled with
+devlib, which is pushed to the device. Select the backend explicitly with
+`--perf-backend perf|simpleperf`, or point `--perf-path` at a specific binary (a file name
+containing `simpleperf` selects the simpleperf backend).
+
+Requirements:
+
+- A rooted device (`adb root` or `su`), or `perf_event_paranoid` set to `-1`. Without root,
+  system-wide counting and PMU raw events are not available to the shell user.
+- An arm64 kernel exposing the CPU PMU (`/sys/bus/event_source/devices/armv8_pmuv3*`).
+
+Behaviour on heterogeneous (big.LITTLE / DynamIQ) SoCs:
+
+- Cores are grouped by MIDR, and each core type gets its own report using its own telemetry
+  specification. `--cpu-list-cores` shows the grouping.
+- With `-p PID` or a command workload, simpleperf counts the process separately on each core
+  type (`-p PID --cpu <cores>`), so the metrics of each core type only cover the time the process
+  ran there. If the process ran on a core type for too short a time to schedule every
+  multiplexed event group, the tool prints a warning and those metrics show ❌. Pin the workload
+  (for example `-- taskset 80 ./app`) to get complete results for one core type.
+- System-wide capture reports each core and an aggregate per core type.
+
+Telemetry specifications for Cortex-X4, Cortex-A720 and Cortex-A520 (used in Snapdragon 8 Gen 3,
+Dimensity 9300 and similar SoCs) are derived from their successors' official specifications.
+They are marked as Development quality; see
+[data/pmu/cpu/specifications/derived/README.md](../../data/pmu/cpu/specifications/derived/README.md)
+for what was changed and how to derive a specification for another core.
+
+Example: full topdown analysis of an app's main process, with per-second CSV metrics:
+
+```sh
+PID=$(adb shell pidof com.example.app)
+topdown-tool --target-type adb --target-config '{"device": "SERIAL"}' \
+    -p "$PID" -I 1000 --cpu-generate-csv metrics --csv-output-path out
+```
+
+Example: run a binary on the big core only:
+
+```sh
+topdown-tool --target-type adb --target-config '{"device": "SERIAL"}' \
+    -- taskset 80 /data/local/tmp/benchmark
+```
+
 ## Choosing what to monitor
 
 Arm Top-Down tool lets you fine-tune what is being monitored:
