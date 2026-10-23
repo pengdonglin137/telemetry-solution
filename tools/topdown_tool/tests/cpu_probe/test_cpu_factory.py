@@ -929,3 +929,57 @@ def test_cpu_probe_factory_remote_path_smoke(
     remote_perf = perf_factory_instance.create()
     assert isinstance(remote_perf, RemoteLinuxPerf)
     assert captured["mux_interval_ms"] == 4
+
+
+@pytest.mark.parametrize(
+    "pid_with_cores, core_filter, expected",
+    [
+        (False, None, False),  # perf: one PID cannot be split across core types
+        (True, None, True),  # simpleperf: -p PID --cpu <cores of this type>
+        (True, [7, 8], True),
+        (False, [7, 8], False),
+    ],
+)
+def test_pid_tracking_on_heterogeneous_cores(
+    monkeypatch, tmp_path, base_args, pid_with_cores, core_filter, expected
+):
+    metrics_dir = tmp_path / "metrics"
+    metrics_dir.mkdir()
+    mapping = {
+        "0x64": {"name": "little_core"},
+        "0xc8": {"name": "mid_core"},
+        "0x12c": {"name": "big_core"},
+    }
+    (metrics_dir / "mapping.json").write_text(json.dumps(mapping))
+    for name in mapping.values():
+        (metrics_dir / f"{name['name']}.json").write_text("{}")
+    monkeypatch.setattr(CpuProbeFactory, "METRICS_DIR", str(metrics_dir))
+    monkeypatch.setattr(CpuProbeFactory, "SCHEMAS_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        "topdown_tool.cpu_probe.cpu_model.TelemetrySpecification.load_from_json_file",
+        fake_load_from_json_file,
+    )
+    base_args.core = core_filter
+    perf_factory = SimpleNamespace(supports_pid_with_cores=pid_with_cores)
+
+    factory = CpuProbeFactory()
+    factory.configure_from_cli_arguments(
+        base_args, SharedContext(perf_factory=perf_factory), cpu_detector=FakeHeteroDetect()
+    )
+
+    assert factory._conf.pid_tracking_applicable is expected
+
+
+def test_pid_tracking_single_core_type_without_pid_cores_support(
+    monkeypatch, base_args, tmp_metrics_dir, tmp_schemas_dir
+):
+    monkeypatch.setattr(CpuProbeFactory, "METRICS_DIR", tmp_metrics_dir)
+    monkeypatch.setattr(CpuProbeFactory, "SCHEMAS_DIR", tmp_schemas_dir)
+    perf_factory = SimpleNamespace(supports_pid_with_cores=False)
+
+    factory = CpuProbeFactory()
+    factory.configure_from_cli_arguments(
+        base_args, SharedContext(perf_factory=perf_factory), cpu_detector=FakeCPUDetect()
+    )
+
+    assert factory._conf.pid_tracking_applicable is True

@@ -375,11 +375,12 @@ class CpuProbe(Base.Probe):
         product_name = normalize_str(self._product_name).replace(" ", "_")
         filename: str = f"perf.stat.cpu.{product_name}.{index}.txt"
         assert self._perf_instance is not None
+        pid_with_cores = bool(getattr(self._perf_factory, "supports_pid_with_cores", False))
         self._perf_instance.start(
             tuple(schedule_unit),
             filename,
             next(iter(self._pid)) if self._pid_tracking else None,
-            cores=self._cores if not self._pid_tracking else None,
+            cores=self._cores if (not self._pid_tracking or pid_with_cores) else None,
         )
 
     def stop_capture(

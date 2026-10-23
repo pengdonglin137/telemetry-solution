@@ -526,7 +526,11 @@ class CpuProbeFactory(Base.ProbeFactory[CpuProbeFactoryConfig]):
         self._update_cpu_descriptions(config, self._cpu_detector)
         self._list_cpus(config.list_cores, self._cpu_detector)
 
-        runtime_conf.pid_tracking_applicable = (
+        # PID tracking needs one perf process per core type. Backends that can restrict a PID
+        # to a set of cores (simpleperf) support it with several core types or a core filter;
+        # the others fall back to per-core system-wide counting in that case.
+        pid_with_cores = bool(getattr(perf_factory_instance, "supports_pid_with_cores", False))
+        runtime_conf.pid_tracking_applicable = pid_with_cores or (
             len(self._midr_core_map) == 1 and config.core_filter is None
         )
 

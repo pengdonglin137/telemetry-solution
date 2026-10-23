@@ -1441,3 +1441,45 @@ def test_probe_skips_when_node_invalid(test_telemetry_spec, caplog):
     # Single warning about missing node and skipping capture should be present
     assert any('node "NON_EXISTENT_NODE" not found' in msg for msg in caplog.messages)
     assert any("Skipping capture for this CPU" in msg for msg in caplog.messages)
+
+
+class _RecordingPerf(FakePerfSimple):
+    """FakePerfSimple that records how CpuProbe starts perf."""
+
+    SUPPORTS_PID_WITH_CORES = False
+    starts: list = []
+
+    def start(self, events_groups, output_filename, pid, cores):
+        _RecordingPerf.starts.append((pid, None if cores is None else list(cores)))
+
+
+@pytest.mark.parametrize(
+    "pid_with_cores, expected_cores",
+    [(True, [2, 3]), (False, None)],
+)
+def test_cpuprobe_pid_tracking_passes_cores_when_supported(
+    monkeypatch, test_telemetry_spec, pid_with_cores, expected_cores
+):
+    conf = CpuProbeConfiguration()
+    conf.metric_group = ["topdown_root_group"]
+    conf.collect_by = CollectBy.METRIC
+    conf.multiplex = True
+    conf.pid_tracking_applicable = True
+
+    monkeypatch.setattr("topdown_tool.cpu_probe.cpu_probe.EventScheduler", FakeSchedulerSimple)
+    monkeypatch.setattr(_RecordingPerf, "SUPPORTS_PID_WITH_CORES", pid_with_cores)
+    monkeypatch.setattr(_RecordingPerf, "starts", [])
+    factory = PerfFactory()
+    factory._impl_class = _RecordingPerf
+
+    probe = CpuProbe(
+        conf,
+        test_telemetry_spec,
+        core_indices=[3, 2],
+        capture_data=True,
+        base_csv_dir=None,
+        perf_factory_instance=factory,
+    )
+    probe.start_capture(run=1, pids=42)
+
+    assert _RecordingPerf.starts == [(42, expected_cores)]
