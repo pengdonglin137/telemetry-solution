@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from topdown_tool.perf.perf_factory import PerfFactory, PerfFactoryConfig
 from topdown_tool.perf.perf import Uncore
 from topdown_tool.perf.remote_linux_perf import RemoteLinuxPerf
+from topdown_tool.perf.remote_simpleperf import RemoteSimpleperf
 from topdown_tool.common import remote_target_manager
 from tests.perf.conftest import FakeProcess, RecordingTarget
 
@@ -296,3 +297,91 @@ def test_perf_factory_remote_cli_override(monkeypatch, tmp_path):
     assert any("/resolved/perf" in call for call in remote_target.background_calls)
 
     perf_instance.stop()
+
+
+# simpleperf backend selection ------------------------------------------------------------
+
+
+@pytest.fixture
+def remote_target_os(monkeypatch):
+    def _set(os_name):
+        target = RecordingTarget()
+        target.os = os_name
+        monkeypatch.setattr(remote_target_manager, "has_remote_target", lambda: True)
+        monkeypatch.setattr(remote_target_manager, "get_remote_target", lambda: target)
+        monkeypatch.setattr(remote_target_manager, "is_target_linuxlike", lambda: True)
+        monkeypatch.setattr(remote_target_manager, "get_target_os", lambda: os_name)
+        return target
+
+    monkeypatch.setattr(RemoteSimpleperf, "_simpleperf_path", None)
+    return _set
+
+
+@pytest.mark.parametrize(
+    "os_name, backend, perf_path, expected",
+    [
+        ("android", "auto", None, RemoteSimpleperf),
+        ("linux", "auto", None, RemoteLinuxPerf),
+        ("android", "auto", "/data/local/tmp/simpleperf", RemoteSimpleperf),
+        ("android", "auto", "/data/local/tmp/perf", RemoteLinuxPerf),
+        ("linux", "auto", "/opt/simpleperf", RemoteSimpleperf),
+        ("android", "perf", None, RemoteLinuxPerf),
+        ("linux", "simpleperf", None, RemoteSimpleperf),
+    ],
+)
+def test_perf_factory_selects_remote_backend(remote_target_os, os_name, backend, perf_path, expected):
+    target = remote_target_os(os_name)
+    factory = PerfFactory()
+    factory.configure(PerfFactoryConfig(perf_path=perf_path, perf_backend=backend))
+
+    instance = factory.create()
+
+    assert type(instance) is expected
+    assert instance._target is target
+    assert factory.supports_pid_with_cores is (expected is RemoteSimpleperf)
+
+
+def test_perf_factory_backend_from_cli(remote_target_os):
+    remote_target_os("android")
+    factory = PerfFactory()
+    args = SimpleNamespace(perf_path=None, perf_args=None, interval=None, perf_backend="perf")
+
+    config = factory.configure_from_cli_arguments(args)
+
+    assert config.perf_backend == "perf"
+    assert isinstance(factory.create(), RemoteLinuxPerf)
+
+
+def test_perf_factory_rejects_unknown_backend():
+    with pytest.raises(ValueError, match="Invalid perf backend"):
+        PerfFactory().configure(PerfFactoryConfig(perf_backend="wperf"))
+
+
+def test_perf_factory_local_ignores_backend(monkeypatch):
+    monkeypatch.setattr(remote_target_manager, "has_remote_target", lambda: False)
+    factory = PerfFactory()
+    factory.configure(PerfFactoryConfig(perf_backend="simpleperf"))
+
+    assert not isinstance(factory.create(), RemoteSimpleperf)
+    assert factory.supports_pid_with_cores is False
+
+
+def test_perf_factory_simpleperf_runnable_and_path(monkeypatch, remote_target_os):
+    target = remote_target_os("android")
+    factory = PerfFactory()
+    seen = {}
+
+    def _runnable(cls, tgt, perf_path):  # pylint: disable=unused-argument
+        seen["args"] = (tgt, perf_path)
+        return True
+
+    monkeypatch.setattr(RemoteSimpleperf, "is_remote_runnable", classmethod(_runnable))
+    monkeypatch.setattr(
+        RemoteLinuxPerf,
+        "is_remote_runnable",
+        classmethod(lambda cls, tgt, path: pytest.fail("perf backend must not be probed")),
+    )
+
+    assert factory.is_perf_runnable()
+    assert seen["args"] == (target, None)
+    assert factory.get_effective_perf_path() == "simpleperf"

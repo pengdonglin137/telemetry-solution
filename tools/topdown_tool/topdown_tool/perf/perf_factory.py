@@ -12,15 +12,19 @@ import sys
 import shutil
 import logging
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 from typing import Type, Optional, Any, Dict, Union, cast
 import argparse
 
 from topdown_tool.perf.perf import Perf
 from topdown_tool.perf.linux_perf import LinuxPerf
 from topdown_tool.perf.remote_linux_perf import RemoteLinuxPerf
+from topdown_tool.perf.remote_simpleperf import RemoteSimpleperf
 from topdown_tool.perf.windows_perf import WindowsPerf, WindowsPerfParser
 from topdown_tool.common import remote_target_manager
 from topdown_tool.probe import Probe
+
+PERF_BACKENDS = ("auto", "perf", "simpleperf")
 
 
 @dataclass
@@ -30,6 +34,7 @@ class PerfFactoryConfig:
     perf_path: Optional[str] = None
     perf_args: Optional[str] = None
     interval: Optional[int] = None
+    perf_backend: str = "auto"
 
 
 class PerfFactory:
@@ -62,6 +67,7 @@ class PerfFactory:
         self._perf_path: Optional[str] = None
         self._perf_args: Optional[str] = None
         self._interval: Optional[int] = None
+        self._perf_backend: str = "auto"
         self._config = PerfFactoryConfig()
 
     @property
@@ -69,15 +75,43 @@ class PerfFactory:
         """Resolve the effective ``Perf`` implementation class.
 
         Returns:
-            Type[Perf]: :class:`RemoteLinuxPerf` when a devlib Linux/Android target is
-            configured, otherwise the platform-local class selected at init.
+            Type[Perf]: The remote backend (see :meth:`_remote_impl`) when a devlib
+            Linux/Android target is configured, otherwise the platform-local class selected at
+            init.
         """
         if (
             remote_target_manager.has_remote_target()
             and remote_target_manager.is_target_linuxlike()
         ):
-            return RemoteLinuxPerf
+            return self._remote_impl()
         return self._impl_class
+
+    def _remote_impl(self) -> Type[Perf]:
+        """Choose between Linux ``perf`` and ``simpleperf`` for a remote target.
+
+        ``auto`` selects simpleperf when ``--perf-path`` names a simpleperf binary, or when no
+        ``--perf-path`` is given and the target runs Android. Otherwise it selects ``perf``.
+        """
+        if self._perf_backend == "simpleperf":
+            return RemoteSimpleperf
+        if self._perf_backend == "perf":
+            return RemoteLinuxPerf
+        if self._perf_path:
+            if "simpleperf" in PurePosixPath(self._perf_path).name:
+                return RemoteSimpleperf
+            return RemoteLinuxPerf
+        if remote_target_manager.get_target_os() == "android":
+            return RemoteSimpleperf
+        return RemoteLinuxPerf
+
+    @property
+    def supports_pid_with_cores(self) -> bool:
+        """Whether the active backend can count a PID restricted to a set of cores.
+
+        When ``True``, per-process collection works on heterogeneous systems: each core type is
+        counted separately for the same process.
+        """
+        return bool(getattr(self._current_impl, "SUPPORTS_PID_WITH_CORES", False))
 
     def create(self) -> Perf:
         """Instantiate a ``Perf`` implementation for the active environment.
@@ -90,7 +124,7 @@ class PerfFactory:
             "perf_args": self._perf_args,
             "interval": self._interval,
         }
-        if impl is RemoteLinuxPerf:
+        if impl in (RemoteLinuxPerf, RemoteSimpleperf):
             kwargs["target"] = remote_target_manager.get_remote_target()
         return impl(**kwargs)
 
@@ -126,9 +160,14 @@ class PerfFactory:
         Get the path to the perf executable that will be used.
 
         Returns:
-            The path to the perf executable, or the default ("perf" or "wperf") if not set.
+            The path to the perf executable, or the default ("perf", "simpleperf" or "wperf")
+            if not set.
         """
-        return self._perf_path or ("perf" if sys.platform == "linux" else "wperf")
+        if self._perf_path:
+            return self._perf_path
+        if remote_target_manager.has_remote_target() and self._current_impl is RemoteSimpleperf:
+            return "simpleperf"
+        return "perf" if sys.platform == "linux" else "wperf"
 
     def is_perf_runnable(self) -> bool:
         """
@@ -142,6 +181,8 @@ class PerfFactory:
             target = remote_target_manager.get_remote_target()
             if target is None:
                 return False
+            if self._current_impl is RemoteSimpleperf:
+                return RemoteSimpleperf.is_remote_runnable(target, self._perf_path)
             return RemoteLinuxPerf.is_remote_runnable(target, self._perf_path)
         return shutil.which(self.get_effective_perf_path()) is not None
 
@@ -178,7 +219,19 @@ class PerfFactory:
         group.add_argument(
             "--perf-path",
             type=str,
-            help="Path to the perf executable (default: 'perf' on Linux, 'wperf' on Windows).",
+            help=(
+                "Path to the perf executable (default: 'perf' on Linux, 'wperf' on Windows, "
+                "'simpleperf' on Android targets)."
+            ),
+        )
+        group.add_argument(
+            "--perf-backend",
+            choices=PERF_BACKENDS,
+            default="auto",
+            help=(
+                "Counting tool used on remote targets. 'auto' (default) uses simpleperf on "
+                "Android and perf on Linux; a --perf-path naming simpleperf selects simpleperf."
+            ),
         )
         group.add_argument(
             "--perf-args",
@@ -214,6 +267,7 @@ class PerfFactory:
             perf_path=getattr(args, "perf_path", None),
             perf_args=getattr(args, "perf_args", None),
             interval=getattr(args, "interval", None),
+            perf_backend=getattr(args, "perf_backend", None) or "auto",
         )
 
     def configure_from_cli_arguments(self, args: argparse.Namespace) -> PerfFactoryConfig:
@@ -237,15 +291,21 @@ class PerfFactory:
             config (PerfFactoryConfig): Configuration values to apply.
         """
 
+        if config.perf_backend not in PERF_BACKENDS:
+            raise ValueError(
+                f"Invalid perf backend {config.perf_backend!r}; expected one of {PERF_BACKENDS}"
+            )
         self._config = config
         self._perf_path = config.perf_path
         self._perf_args = config.perf_args
         self._interval = config.interval
+        self._perf_backend = config.perf_backend
         if self._perf_path is not None:
             self._impl_class.update_perf_path(self._perf_path)
             # Ensure remote Linux runs pick up the same override even on non-Linux hosts.
             LinuxPerf.update_perf_path(self._perf_path)
             RemoteLinuxPerf.update_perf_path(self._perf_path)
+            RemoteSimpleperf.update_perf_path(self._perf_path)
 
     def register_parser_for_class(
         self, probe_class: Type["Probe"], parser_class: Type[WindowsPerfParser]
