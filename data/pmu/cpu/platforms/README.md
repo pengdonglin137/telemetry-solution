@@ -81,6 +81,12 @@ derived specifications (removed nodes are replaced by their children).
 
 ## Profiles
 
+### Devices verified without a profile
+
+| SoC | Cores | Why no profile is needed |
+|-----|-------|--------------------------|
+| Snapdragon 8 Gen 3 (SM8650) | Cortex-A520 ×2, Cortex-A720 ×5, Cortex-X4 ×1 | 18 programmable counters per core; the SoC-independent adjustments are already in the derived specifications. Their specifications contain no SME2 events, so the `sme` rule has no effect. |
+
 ### XRing O3 (`soc/xring_o3.json`)
 
 Measured on a Xiaomi device with Android 17, kernel 6.18, simpleperf 1.build.26.10.23.

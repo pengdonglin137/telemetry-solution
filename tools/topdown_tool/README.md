@@ -353,6 +353,8 @@ from topdown_tool.perf import PerfFactoryConfig, perf_factory
 
 # Configure perf first (optional overrides shown here).
 perf_factory.configure(PerfFactoryConfig(perf_path="/usr/bin/perf"))
+# For an Android target: PerfFactoryConfig(perf_backend="simpleperf"); the default
+# "auto" already selects simpleperf when the remote target runs Android.
 
 # Optionally provide a devlib target:
 # from topdown_tool import set_remote_target
@@ -395,6 +397,13 @@ In some cases, this can prevent all events within a single metric from being sch
 #### Possible workarounds:
 * Use a metal instance.
 * It is possible to schedule events within a metric independently by specifying `--cpu-collect-by=none`, although note that this can lead to unusual/invalid data for all but the most homogeneous workloads.
+
+### Reduced PMU counter availability on some Android SoCs
+Vendor PMU drivers can reserve part of the CPU PMU for their own use. On XRing O3, for example, Linux gets 7 programmable counters plus the cycle counter (Snapdragon 8 Gen 3 provides 18). Captures need more multiplexing, and metrics with more events than counters cannot be scheduled with `--cpu-collect-by=group` (`Could not schedule group with events: ...`).
+
+* Keep the default `--cpu-collect-by=metric`, and capture fewer metric groups (`-s topdown`, `-m ...`) for short runs.
+* A SoC profile in [data/pmu/cpu/platforms](../../data/pmu/cpu/platforms/README.md) can set `"cycle_counter": true` so that CPU_CYCLES uses the dedicated cycle counter and each group holds one more event (simpleperf backend only; the tool checks on the device that the cycle counter is usable). The XRing O3 profile does this.
+* On Qualcomm SoCs whose memory-latency governor holds counters, `--perf-args=--use-devfreq-counters` asks simpleperf to release them during the capture.
 
 ### Contributors: command not found after `uv sync`
 When developing from a repository checkout, `uv sync` installs console scripts into `.venv/bin`. Run the command through uv:

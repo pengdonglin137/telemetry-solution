@@ -99,6 +99,8 @@ The Arm CPU Telemetry Solution is supported across all Neoverse and Lumex CPUs, 
 
 Cortex-X4, Cortex-A720 and Cortex-A520 have derived (Development quality, not official) specifications under [data/pmu/cpu/specifications/derived](data/pmu/cpu/specifications/derived/README.md), so the Arm Top-Down tool can analyze Android devices built on them using `simpleperf`.
 
+SoC-specific differences in how a core is integrated (for example no SME2 unit, or PMU counters reserved by a vendor driver) are described in [data/pmu/cpu/platforms](data/pmu/cpu/platforms/README.md) and applied at run time only on matching devices; the specifications themselves stay unchanged. A profile for Xiaomi XRing O3 is included.
+
 ## Arm CMN Telemetry Solution
 
 The Arm CMN Telemetry Solution extends the telemetry framework to Arm Coherent Mesh Network (CMN) interconnects, enabling system-level performance analysis beyond CPU cores.

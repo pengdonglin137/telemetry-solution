@@ -177,6 +177,8 @@ topdown-tool -C 7         # 只统计 CPU 7
 | `-n backend_mem_bound` | 只采集某个决策树节点及其子树 |
 | `-m Topdown_L1,MPKI` | 只采集指定的指标组 |
 | `--cpu-events-modifiers u` | 只统计用户态（EL0）；`k` 只统计内核态 |
+| `-c metric` / `-c group` / `-c none` | 事件分组方式：同一指标的事件放在一组（默认）、同一指标组的事件放在一组、每个事件单独计数。`group` 需要的计数器最多 |
+| `--cpu-no-platform-adaptation` | 不应用[平台适配层](#11-平台适配层)，使用原始规范 |
 | `--cpu-list-groups` | 列出每种核型的指标组 |
 | `--cpu-list-metrics -d` | 列出指标及其说明 |
 | `--cpu-list-events` | 列出事件 |
@@ -367,6 +369,15 @@ Arm 没有发布 Cortex-X4、Cortex-A720、Cortex-A520 的官方遥测规范。�
 
 **`argument --perf-args: expected one argument`**
 `--perf-args` 的值以 `-` 开头时要用 `=`：`--perf-args=--use-devfreq-counters`。
+
+**`Could not schedule group with events: ...`**
+某个指标（或用 `-c group` 时某个指标组）需要的事件数超过了可用计数器数量，常见于计数器很少的 SoC（玄戒 O3 只有 7 个）。改用默认的 `-c metric`；如果是新 SoC，确认它的 SoC 配置是否可以开启 `cycle_counter`，见[第 11 节](#11-平台适配层)。
+
+**和规范相比少了一些指标**
+平台适配层隐藏了在这台设备上无效的指标，`--log-level INFO` 会列出隐藏了哪些、原因是什么。需要原始规范的全部指标时，加 `--cpu-no-platform-adaptation`。
+
+**按 Ctrl-C 后没有马上退出**
+工具要先停止 simpleperf、把数据拉回主机再计算，通常需要几秒，核型多、事件组多时会更久。按一次即可，等它输出结果。如果过了一分钟仍没有反应，再按一次。
 
 **指标略高于 100% 或略低于 0%**
 多路复用的缩放误差和事件计数的微小差异会造成几个百分点的偏差。A720 的 `backend_cache_l1d_bound` / `backend_cache_l2d_bound` 见[第 10 节](#10-派生规范的限制)。

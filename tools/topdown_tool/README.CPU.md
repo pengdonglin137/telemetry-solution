@@ -238,6 +238,23 @@ Where <core-list> accepts integers and ranges (e.g., `0,2-3`).
 
 You can combine SME with other CPU probe options (metric groups, stages, CSV, etc.).
 
+## Platform adaptation
+
+Some SoCs integrate a core in a way that makes part of its specification wrong or useless there
+(no SME2 unit, PMU counters reserved by a vendor driver, an event that counts differently). The
+CPU probe applies adjustments for such cases from
+[data/pmu/cpu/platforms](../../data/pmu/cpu/platforms/README.md) on top of the unchanged
+specifications:
+
+- Metrics that need a CPU feature the core does not report in `/proc/cpuinfo` are hidden (for
+  example the SME2 metrics of C1-series cores on SoCs without an SME2 unit).
+- A SoC profile, matched on Android properties or device-tree `compatible` strings, can hide
+  metrics for one core type and allow CPU_CYCLES on the PMU's dedicated cycle counter, so a perf
+  group holds one more event. Devices without a matching profile are not affected.
+
+Run with `--log-level INFO` to see the selected profile and the hidden metrics. Use
+`--cpu-no-platform-adaptation` to capture with the specifications unchanged.
+
 ## Programmatic configuration reference
 
 When embedding the CPU probe directly, rely on the factory types exposed by
@@ -275,6 +292,9 @@ Override any of the following ``CpuProbeFactoryConfig`` fields to tune behaviour
 - `mux_interval_ms`: perf event multiplexing interval in milliseconds. This is
   equivalent to `--cpu-mux-interval`; when unset, the shared `--mux-interval`
   or probe/platform default is used.
+- `platform_adaptation`: keep ``True`` (default) to apply the platform adaptation
+  layer, or set ``False`` to use the specifications unchanged (mirrors
+  `--cpu-no-platform-adaptation`).
 
 Fields not listed here—such as `pid_tracking_applicable`—are managed internally
 and do not need to be set by callers.

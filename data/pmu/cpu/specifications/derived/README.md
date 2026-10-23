@@ -129,3 +129,10 @@ For a core that is not listed here, derive a specification the same way and eith
 3. Check whether the cache stall events are disjoint or nested on that core
    (`L1D + MEM ≈ MEMBOUND` means disjoint) and use `--override-metric` / `--drop-metric`
    accordingly.
+
+Only put changes in a derived specification when they hold for the core itself. A difference
+seen on one SoC only (an optional unit that is absent, counters reserved by a vendor driver, an
+event that behaves differently in that integration) belongs in a SoC profile under
+[`../../platforms`](../../platforms/README.md), so that other SoCs using the same core are not
+affected. The measurements above were made on a single SoC (SM8650); confirm them on a second
+SoC before treating them as core properties.
