@@ -67,5 +67,14 @@
     },
     "0x41d8c": {
         "name": "lumex/arm_c1_ultra_r0p0_pmu"
+    },
+    "0x41d80": {
+        "name": "derived/cortex_a520_derived_pmu"
+    },
+    "0x41d81": {
+        "name": "derived/cortex_a720_derived_pmu"
+    },
+    "0x41d82": {
+        "name": "derived/cortex_x4_derived_pmu"
     }
 }
