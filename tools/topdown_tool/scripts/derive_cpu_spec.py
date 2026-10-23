@@ -42,6 +42,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+# pylint: disable=wrong-import-position
+from topdown_tool.cpu_probe.spec_pruning import prune_spec  # noqa: E402
+
 ARM_DATA_URL = "https://raw.githubusercontent.com/ARM-software/data/master/pmu/{}.json"
 
 Spec = Dict[str, Any]
@@ -262,71 +266,6 @@ class SpecBuilder:  # pylint: disable=too-many-instance-attributes
                 self.report.append(f"slots {old}->{new}: {name} = {formula}")
                 metric["formula"] = formula
 
-    # Groups / methodology ----------------------------------------------------
-    def build_groups(self) -> Dict[str, Any]:
-        groups = copy.deepcopy(self.base["groups"])
-        for group in groups.get("function", {}).values():
-            if group.get("events") is not None:
-                group["events"] = [e for e in group["events"] if e in self.events]
-        groups["function"] = {
-            name: group
-            for name, group in groups.get("function", {}).items()
-            if group.get("events") or group.get("metrics")
-        }
-        metric_groups = {}
-        for name, group in groups.get("metrics", {}).items():
-            metrics = [m for m in group.get("metrics") or [] if m in self.metrics]
-            if metrics:
-                group["metrics"] = metrics
-                metric_groups[name] = group
-            else:
-                self.report.append(f"dropped empty metric group: {name}")
-        groups["metrics"] = metric_groups
-        return groups
-
-    def build_methodologies(self, metric_groups: Set[str]) -> Dict[str, Any]:
-        methodologies = copy.deepcopy(self.base["methodologies"])
-        topdown = methodologies["topdown_methodology"]
-        grouping = topdown.get("metric_grouping", {})
-        for stage, names in grouping.items():
-            grouping[stage] = [name for name in names if name in metric_groups]
-
-        tree = topdown["decision_tree"]
-        nodes = {node["name"]: node for node in tree["metrics"]}
-        removed = {name for name in nodes if name not in self.metrics}
-
-        def expand(items: Iterable[str], seen: Set[str]) -> List[str]:
-            result: List[str] = []
-            for item in items:
-                if item in removed:
-                    if item in seen:
-                        continue
-                    child_items = nodes[item]["next_items"] if item in nodes else []
-                    result.extend(expand(child_items, seen | {item}))
-                elif item in self.metrics or item in metric_groups:
-                    result.append(item)
-            return list(dict.fromkeys(result))
-
-        new_nodes = []
-        for node in tree["metrics"]:
-            if node["name"] in removed:
-                continue
-            new_node = copy.deepcopy(node)
-            new_node["next_items"] = [
-                item for item in expand(node["next_items"], {node["name"]}) if item != node["name"]
-            ]
-            new_node["sample_events"] = [
-                e for e in node.get("sample_events", []) if e in self.events
-            ]
-            new_nodes.append(new_node)
-        tree["metrics"] = new_nodes
-        tree["root_nodes"] = expand(tree["root_nodes"], set())
-        tree["root_nodes"] = [name for name in tree["root_nodes"] if name in self.metrics]
-        lifted = sorted(removed & set(nodes))
-        if lifted:
-            self.report.append("tree nodes replaced by their children: " + ", ".join(lifted))
-        return methodologies
-
 
 # pylint: disable=too-many-locals
 def derive(args: argparse.Namespace) -> Tuple[Spec, List[str]]:
@@ -349,8 +288,6 @@ def derive(args: argparse.Namespace) -> Tuple[Spec, List[str]]:
     builder.build_events()
     builder.build_metrics((base_slots, num_slots) if args.rewrite_slots else None)
     builder.apply_overrides(parse_overrides(args.override_metric))
-    groups = builder.build_groups()
-    methodologies = builder.build_methodologies(set(groups["metrics"]))
 
     product_conf = copy.deepcopy(base_conf)
     product_conf.update(
@@ -391,13 +328,13 @@ def derive(args: argparse.Namespace) -> Tuple[Spec, List[str]]:
     spec["product_configuration"] = product_conf
     spec["events"] = builder.events
     spec["metrics"] = builder.metrics
-    spec["groups"] = groups
-    spec["methodologies"] = methodologies
+    spec["groups"] = copy.deepcopy(base["groups"])
+    spec["methodologies"] = copy.deepcopy(base["methodologies"])
+    builder.report.extend(prune_spec(spec, set(builder.events)))
     return spec, builder.report
 
 
 def validate(path: Path, schema_dir: Path) -> None:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     # pylint: disable=import-outside-toplevel
     from topdown_tool.cpu_probe.cpu_model import TelemetrySpecification
 
