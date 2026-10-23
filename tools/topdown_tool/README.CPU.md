@@ -220,7 +220,8 @@ CPU Neoverse V2 metrics
 
 Core selection behavior when `-C`/`--core` is not specified:
 - On homogeneous systems, metrics are attributed to the cores executing your workload/PIDs excepts if core are specified or if capture happens system-wide.
-- On heterogeneous systems (mixed core types), capture occurs across all individual cores present (to include all core types).
+- On heterogeneous systems (mixed core types) with Linux `perf`, capture occurs across all individual cores present (to include all core types).
+- On heterogeneous systems with `simpleperf` (Android targets), a single workload or PID is counted per process on each core type (`simpleperf stat -p PID --cpu <cores>`), so each core type's metrics only cover the time the process ran on it. This also applies when `-C`/`--core` is given. Monitoring several PIDs falls back to counting the selected cores system-wide.
 
 ## SME (Scalable Matrix Extension) metrics
 

@@ -135,7 +135,7 @@ topdown-tool --target-type ssh --target-config ssh.json -- ./a.out
 
 ### Use a remote target
 
-If you need a newer perf than the one bundled in devlib, copy your preferred `perf` into the relevant `devlib/bin/<abi>/` directory.
+If you need a newer perf than the one bundled in devlib, copy your preferred `perf` into the relevant `devlib/bin/<abi>/` directory. This applies to the `perf` backend. Android targets use `simpleperf` by default (see [Android devices (simpleperf)](#android-devices-simpleperf)); pass `--perf-path` to use a specific simpleperf binary on the device.
 
 Once the dependencies are installed, provide the remote type with `--target-type` and the connection details with `--target-config`. The configuration argument accepts either an inline JSON object or a path to a JSON file. Supported target types are:
 - `ssh` for Linux hosts reachable over SSH.
@@ -246,6 +246,9 @@ Note that you can use "--" to separate topdown-tool options from the command you
 > :warning: This is not currently supported on Windows.
 
 > :warning: On Linux due to limitations of perf command, collection happens system-wide for the duration of monitored processes. When last process terminates, collection stops.
+
+> [!note]
+> On Android targets (simpleperf backend), a single PID is counted per process, separately on each core type. Several PIDs are counted system-wide, as with perf.
 
 You can specify one or more process IDs to monitor:
 ```sh
