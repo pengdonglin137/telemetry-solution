@@ -493,3 +493,62 @@ def test_retrieve_event_results_invalid_key():
     scheduler = EventScheduler([g], CollectBy.METRIC, max_events=6)
     with pytest.raises(KeyError):
         scheduler.retrieve_event_results(perf_result, g, m_metric)
+
+
+# Dedicated cycle counter (free_event) ----------------------------------------------------
+
+
+class _Ev:
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def __lt__(self, other: "_Ev") -> bool:
+        return self.name < other.name
+
+    def __repr__(self) -> str:
+        return self.name
+
+
+def _is_cycles(event: "_Ev") -> bool:
+    return event.name == "CYCLES"
+
+
+def test_free_event_allows_one_extra_event_per_group() -> None:
+    cycles = _Ev("CYCLES")
+    others = [_Ev(f"E{i}") for i in range(3)]
+    metric = tuple([cycles] + others)  # 4 events, 3 programmable counters
+
+    with pytest.raises(GroupScheduleError):
+        EventScheduler([[metric]], CollectBy.METRIC, max_events=3)
+
+    scheduler = EventScheduler([[metric]], CollectBy.METRIC, max_events=3, free_event=_is_cycles)
+    assert [set(g) for g in scheduler.optimized_event_groups] == [set(metric)]
+
+
+def test_free_event_does_not_help_without_cycles() -> None:
+    metric = tuple(_Ev(f"E{i}") for i in range(4))
+    with pytest.raises(GroupScheduleError):
+        EventScheduler([[metric]], CollectBy.METRIC, max_events=3, free_event=_is_cycles)
+
+
+def test_free_event_used_when_merging_groups() -> None:
+    cycles = _Ev("CYCLES")
+    a, b, c = _Ev("A"), _Ev("B"), _Ev("C")
+    groups = [[(cycles, a), (cycles, b), (cycles, c)]]
+
+    without = EventScheduler(groups, CollectBy.METRIC, max_events=3)
+    with_free = EventScheduler(groups, CollectBy.METRIC, max_events=3, free_event=_is_cycles)
+
+    assert len(without.optimized_event_groups) == 2
+    assert [set(g) for g in with_free.optimized_event_groups] == [{cycles, a, b, c}]
+
+
+def test_free_event_counts_once_per_chunk_without_multiplexing() -> None:
+    cycles = _Ev("CYCLES")
+    a, b = _Ev("A"), _Ev("B")
+    # Two groups counted at the same time can share only one cycle counter.
+    iterator = EventGroupIterator([(cycles, a), (cycles, b)], max_events=2, split=True, free_event=_is_cycles)
+    assert [list(chunk) for chunk in iterator] == [[(cycles, a)], [(cycles, b)]]
+
+    iterator = EventGroupIterator([(cycles, a), (b,)], max_events=2, split=True, free_event=_is_cycles)
+    assert [list(chunk) for chunk in iterator] == [[(cycles, a), (b,)]]

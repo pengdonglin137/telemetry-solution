@@ -16,6 +16,7 @@ from pathlib import Path
 from sys import platform
 from typing import (
     Any,
+    Callable,
     Dict,
     List,
     Optional,
@@ -66,6 +67,9 @@ from topdown_tool.perf import PerfFactory
 from topdown_tool.cpu_probe.cpu_model import TelemetrySpecification
 
 logger = logging.getLogger(__name__)
+
+#: Architectural CPU_CYCLES event, which the Arm PMU can count on its dedicated cycle counter.
+CPU_CYCLES_EVENT_CODE = 0x11
 
 
 def event_source_devices_with_cpus_file(target: Optional[Target] = None) -> tuple[str, ...]:
@@ -188,10 +192,15 @@ class CpuProbe(Base.Probe):
             return
 
         # Create the scheduler based on the capture group
+        scheduler_kwargs: Dict[str, Any] = {}
+        free_event = self._cycle_counter_predicate()
+        if free_event is not None:
+            scheduler_kwargs["free_event"] = free_event
         self._event_scheduler = EventScheduler[Event](
             [group.metric_event_tuples() for group in self._capture_groups],
             self._conf.collect_by,
             self._max_events,
+            **scheduler_kwargs,
         )
         self._capture_it = self._event_scheduler.get_event_group_iterator(
             split=not self._conf.multiplex
@@ -208,6 +217,20 @@ class CpuProbe(Base.Probe):
 
         # Declare the computed metrics
         self.computed_metrics: ComputedMetrics = {}
+
+    def _cycle_counter_predicate(self) -> Optional[Callable[[Event], bool]]:
+        """Return a predicate for CPU_CYCLES when the PMU cycle counter is usable.
+
+        On Arm, CPU_CYCLES (event 0x11) can be counted by the dedicated cycle counter, so a
+        perf group may hold it on top of the programmable counters. This is only enabled when
+        the platform profile allows it and the perf backend has verified it on the target.
+        """
+        if not self._conf.use_cycle_counter:
+            return None
+        probe = getattr(self._perf_factory, "has_cycle_counter", None)
+        if probe is None or not probe(self._cores[0], self._max_events):
+            return None
+        return lambda event: event.code == CPU_CYCLES_EVENT_CODE
 
     def get_mux_interval_requests(self) -> Sequence[MuxIntervalRequest]:
         if not self._capture_data or self._conf.mux_interval_ms is None:

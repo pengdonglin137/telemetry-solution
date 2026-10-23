@@ -312,7 +312,7 @@ def test_recorder_system_wide_flow(tmp_path, android_target) -> None:
     assert "--group r11,r8 --group r011,r1b" in cmd
     assert "2>" in cmd and cmd.endswith(".err")
     assert target.background_kwargs[0]["as_root"] is True
-    assert (tmp_path / "perf-cli-0").read_text().startswith("/system/bin/simpleperf stat")
+    assert (tmp_path / "perf.stat-0.cmd").read_text().startswith("/system/bin/simpleperf stat")
 
     perf.stop()
     assert target.processes[0].signals == [SIGINT]
@@ -499,3 +499,25 @@ def test_get_pmu_counters_binary_search(android_target) -> None:
 def test_cmn_queries_are_unsupported() -> None:
     with pytest.raises(RuntimeError):
         RemoteSimpleperf.get_cmn_version()
+
+
+@pytest.mark.parametrize("cycles_fully_counted, expected", [(True, True), (False, False)])
+def test_has_cycle_counter_probe(android_target, cycles_fully_counted, expected) -> None:
+    target = android_target({})
+
+    def execute(cmd: str) -> str:
+        names = shlex.split(cmd)[shlex.split(cmd).index("--group") + 1].split(",")
+        assert names[0] == "r11" and len(names) == 8
+        lines = [
+            _line(name, -1, 0, 5, 1000, 1000 if (cycles_fully_counted or i == 0) else 500)
+            for i, name in enumerate(names)
+        ]
+        return _block(lines)
+
+    target.execute_impl = execute
+    assert RemoteSimpleperf.has_cycle_counter(0, 7) is expected
+
+
+def test_has_cycle_counter_without_target(monkeypatch) -> None:
+    monkeypatch.setattr(remote_target_manager, "get_remote_target", lambda: None)
+    assert RemoteSimpleperf.has_cycle_counter(0, 7) is False

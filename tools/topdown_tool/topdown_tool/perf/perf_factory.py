@@ -198,6 +198,20 @@ class PerfFactory:
         """
         return self._current_impl.get_pmu_counters(core)
 
+    def has_cycle_counter(self, core: int, programmable: int) -> bool:
+        """Return whether CPU_CYCLES can use a dedicated counter on top of ``programmable``.
+
+        Only backends that verify this on the device (simpleperf) report ``True``; other
+        backends keep the conservative behaviour of counting CPU_CYCLES like any other event.
+        """
+        probe = getattr(self._current_impl, "has_cycle_counter", None)
+        if probe is None:
+            return False
+        try:
+            return bool(probe(core, programmable))
+        except Exception:  # pylint: disable=broad-exception-caught
+            return False
+
     def get_midr_value(self, core: int) -> int:
         """Retrieve the MIDR (Main ID Register) value for a given core.
 

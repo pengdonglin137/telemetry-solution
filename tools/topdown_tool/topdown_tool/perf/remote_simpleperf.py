@@ -469,6 +469,9 @@ class RemoteSimpleperf(LinuxPerfBase):
             simpleperf_path=self._binary or "simpleperf",
             remote_dir=self._remote_dir or "/data/local/tmp",
             as_root=_use_root(self._target),
+            # One file per recorder and per core type ("perf-cli-<index>" would be shared by
+            # every CPU probe and overwritten).
+            cli_filename=cli_path.with_name(f"{Path(output_basename).name}.cmd"),
         )
         return kwargs
 
@@ -647,6 +650,39 @@ class RemoteSimpleperf(LinuxPerfBase):
         counters = LinuxPerfBase._binary_search_pmu_max(check)
         logging.info("Detected %d PMU counters on core %d (simpleperf)", counters, core)
         return counters
+
+    @classmethod
+    def has_cycle_counter(cls, core: int, programmable: int) -> bool:
+        """Return whether CPU_CYCLES fits next to ``programmable`` raw events in one group.
+
+        The Arm PMU has a dedicated cycle counter. When the kernel uses it for CPU_CYCLES, a
+        group can hold one CPU_CYCLES event on top of the programmable counters. This is
+        checked on the device: CPU_CYCLES plus ``programmable`` INST_RETIRED events must all
+        be counted for the whole run.
+        """
+        target = remote_target_manager.get_remote_target()
+        if target is None or programmable <= 0:
+            return False
+        names = ",".join(["r11"] + [f"r{'0' * i}8" for i in range(programmable)])
+        command = (
+            f"{shlex.quote(cls.resolve_simpleperf(target))} stat -a --csv --verbose --cpu {core} "
+            f"--group {names} --duration {_PROBE_DURATION_S} 2>/dev/null"
+        )
+        try:
+            text = _to_text(
+                target.execute(command, timeout=10, check_exit_code=False, as_root=_use_root(target))
+            )
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logging.warning("simpleperf cycle counter probe failed: %s", exc)
+            return False
+        blocks = parse_simpleperf_verbose_csv(text)
+        available = bool(blocks) and len(blocks[0].counters) == programmable + 1 and all(
+            c.running > 0 and c.running == c.enabled for c in blocks[0].counters.values()
+        )
+        logging.info(
+            "Dedicated cycle counter on core %d: %s", core, "yes" if available else "no"
+        )
+        return available
 
     @classmethod
     def get_cmn_version(cls) -> Dict[int, Union[int, str]]:

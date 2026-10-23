@@ -112,6 +112,18 @@ class GroupScheduleError(Exception, Generic[E]):
         )
 
 
+def _events_cost(events: Iterable[E], free_event: Optional[Callable[[E], bool]]) -> int:
+    """Return how many programmable counters ``events`` need when counted together.
+
+    ``free_event`` identifies events that can use a dedicated counter (the PMU cycle counter).
+    Only one such counter exists, so at most one free event is not counted.
+    """
+    unique = set(events)
+    if free_event is not None and any(free_event(event) for event in unique):
+        return len(unique) - 1
+    return len(unique)
+
+
 class EventGroupIterator(Generic[E]):
     """Iterator over event group chunks based on a maximum events limit.
 
@@ -124,13 +136,20 @@ class EventGroupIterator(Generic[E]):
         split: Whether to split event groups into multiple chunks.
     """
 
-    def __init__(self, event_groups: Sequence[Tuple[E, ...]], max_events: int, split: bool):
+    def __init__(
+        self,
+        event_groups: Sequence[Tuple[E, ...]],
+        max_events: int,
+        split: bool,
+        free_event: Optional[Callable[[E], bool]] = None,
+    ):
         """Initializes the iterator with given event groups and settings.
 
         Args:
             event_groups: Sequence of event groups (each a tuple of events).
             max_events: Maximum number of events allowed in a single chunk.
             split: Boolean flag to indicate whether to split groups into chunks.
+            free_event: Optional predicate for events that use a dedicated counter.
 
         Raises:
             ValueError: If an individual event group exceeds max_events.
@@ -138,26 +157,32 @@ class EventGroupIterator(Generic[E]):
         self.event_groups = event_groups
         self.max_events = max_events
         self.split = split
+        self.free_event = free_event
         self._chunks: Sequence[Sequence[Tuple[E, ...]]] = (
             self._make_chunks() if split else [event_groups]
         )
         self._index: int = 0
 
+    def _chunk_cost(self, groups: Sequence[Tuple[E, ...]]) -> int:
+        # Groups in a chunk are counted at the same time: every event needs its own counter,
+        # except one free event that can use the dedicated counter.
+        events = [event for group in groups for event in group]
+        cost = len(events)
+        if self.free_event is not None and any(self.free_event(event) for event in events):
+            cost -= 1
+        return cost
+
     def _make_chunks(self) -> Sequence[Sequence[Tuple[E, ...]]]:
         # Splits the event groups into chunks such that each chunk's total events does not exceed max_events.
         chunks: List[List[Tuple[E, ...]]] = []
         current_chunk: List[Tuple[E, ...]] = []
-        current_count = 0
         for group in self.event_groups:
-            group_len = len(group)
-            if group_len > self.max_events:
+            if self._chunk_cost([group]) > self.max_events:
                 raise ValueError("Too many events to capture without multiplexing")
-            if current_chunk and current_count + group_len > self.max_events:
+            if current_chunk and self._chunk_cost(current_chunk + [group]) > self.max_events:
                 chunks.append(current_chunk)
                 current_chunk = []
-                current_count = 0
             current_chunk.append(group)
-            current_count += group_len
         if current_chunk:
             chunks.append(current_chunk)
         return chunks
@@ -248,6 +273,7 @@ class EventScheduler(Generic[E]):
         groups: Sequence[Sequence[Tuple[E, ...]]],
         collect_by: CollectBy,
         max_events: int = 6,
+        free_event: Optional[Callable[[E], bool]] = None,
     ) -> None:
         """Initializes an EventScheduler.
 
@@ -255,6 +281,9 @@ class EventScheduler(Generic[E]):
             groups: A sequence of event group sequences; each inner tuple represents a metric.
             collect_by: A CollectBy enum value indicating the scheduling strategy.
             max_events: Maximum hardware counters available for simultaneous capture.
+            free_event: Optional predicate for an event that can use a dedicated counter
+                (e.g. CPU_CYCLES on the PMU cycle counter). A group containing such an event
+                may hold ``max_events + 1`` events.
 
         Raises:
             GroupScheduleError: If a group cannot be scheduled given max_events.
@@ -262,6 +291,7 @@ class EventScheduler(Generic[E]):
         self.groups = groups
         self.collect_by = collect_by
         self.max_events = max_events
+        self.free_event = free_event
         self.optimized_event_groups = self._generate_event_list()
         self.retriever: Optional[
             Dict[
@@ -305,7 +335,7 @@ class EventScheduler(Generic[E]):
             res: List[Tuple[E, ...]] = []
             for group in self.groups:
                 group_events = self._group_events(group)
-                if len(group_events) > self.max_events:
+                if _events_cost(group_events, self.free_event) > self.max_events:
                     raise GroupScheduleError(set(group_events), self.max_events)
                 res.append(group_events)
             return self._optimize_event_groups(res)
@@ -313,7 +343,7 @@ class EventScheduler(Generic[E]):
             metrics = [m for g in self.groups for m in g]
             for metric_events in metrics:
                 unique_events = set(metric_events)
-                if len(unique_events) > self.max_events:
+                if _events_cost(unique_events, self.free_event) > self.max_events:
                     raise GroupScheduleError(unique_events, self.max_events)
             return self._optimize_event_groups(metrics)
 
@@ -352,7 +382,7 @@ class EventScheduler(Generic[E]):
                 for j in range(i + 1, len(unique_groups)):
                     if not used[j]:
                         potential = merge_groups(candidate, unique_groups[j])
-                        if len(potential) <= self.max_events:
+                        if _events_cost(potential, self.free_event) <= self.max_events:
                             candidate = potential
                             used[j] = True
                             merged_flag = True
@@ -375,7 +405,9 @@ class EventScheduler(Generic[E]):
             for chunk in iterator:
                 process(chunk)
         """
-        return EventGroupIterator(self.optimized_event_groups, self.max_events, split)
+        return EventGroupIterator(
+            self.optimized_event_groups, self.max_events, split, self.free_event
+        )
 
     def retrieve_event_result(
         self,

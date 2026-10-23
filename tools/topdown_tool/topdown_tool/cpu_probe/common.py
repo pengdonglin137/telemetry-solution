@@ -61,6 +61,8 @@ class CpuProbeConfiguration:
     show_sample_events: bool = False
     pid_tracking_applicable: bool = False
     mux_interval_ms: Optional[int] = None
+    # Set by the platform adaptation layer: allow CPU_CYCLES on the dedicated cycle counter.
+    use_cycle_counter: bool = False
 
 
 @dataclass(frozen=True, order=True)

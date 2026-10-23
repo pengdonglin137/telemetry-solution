@@ -1483,3 +1483,60 @@ def test_cpuprobe_pid_tracking_passes_cores_when_supported(
     probe.start_capture(run=1, pids=42)
 
     assert _RecordingPerf.starts == [(42, expected_cores)]
+
+
+class _CycleCounterPerf(FakePerfSimple):
+    """Fake perf with 2 programmable counters and an optional cycle counter."""
+
+    CYCLE_COUNTER = False
+
+    @classmethod
+    def get_pmu_counters(cls, core):
+        return 2
+
+    @classmethod
+    def has_cycle_counter(cls, core, programmable):
+        return cls.CYCLE_COUNTER
+
+
+@pytest.mark.parametrize(
+    "profile_allows, cycle_counter, expect_predicate",
+    [(False, True, False), (True, False, False), (True, True, True)],
+)
+def test_cpuprobe_uses_cycle_counter_when_available(
+    monkeypatch, test_telemetry_spec, profile_allows, cycle_counter, expect_predicate
+) -> None:
+    from topdown_tool.cpu_probe.cpu_probe import CPU_CYCLES_EVENT_CODE
+
+    monkeypatch.setattr(_CycleCounterPerf, "CYCLE_COUNTER", cycle_counter)
+    captured = {}
+
+    class _CapturingScheduler(FakeSchedulerSimple):
+        def __init__(self, event_groups, collect_by, max_events, **kwargs):
+            captured["max_events"] = max_events
+            captured["free_event"] = kwargs.get("free_event")
+            super().__init__(event_groups, collect_by, max_events)
+
+    monkeypatch.setattr("topdown_tool.cpu_probe.cpu_probe.EventScheduler", _CapturingScheduler)
+    factory = PerfFactory()
+    factory._impl_class = _CycleCounterPerf
+
+    conf = CpuProbeConfiguration()
+    conf.metric_group = ["topdown_root_group"]
+    conf.use_cycle_counter = profile_allows
+    CpuProbe(
+        conf,
+        test_telemetry_spec,
+        core_indices=[0],
+        capture_data=True,
+        base_csv_dir=None,
+        perf_factory_instance=factory,
+    )
+
+    assert captured["max_events"] == 2
+    predicate = captured["free_event"]
+    if not expect_predicate:
+        assert predicate is None
+    else:
+        assert predicate(types.SimpleNamespace(code=CPU_CYCLES_EVENT_CODE))
+        assert not predicate(types.SimpleNamespace(code=0x8))
