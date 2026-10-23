@@ -97,6 +97,8 @@ Key chapters from this whitepaper are as below:
 
 The Arm CPU Telemetry Solution is supported across all Neoverse and Lumex CPUs, with PMU events, metrics, and methodology defined and upstreamed in Linux perf. Support for additional Arm CPUs will be available soon.
 
+Cortex-X4, Cortex-A720 and Cortex-A520 have derived (Development quality, not official) specifications under [data/pmu/cpu/specifications/derived](data/pmu/cpu/specifications/derived/README.md), so the Arm Top-Down tool can analyze Android devices built on them using `simpleperf`.
+
 ## Arm CMN Telemetry Solution
 
 The Arm CMN Telemetry Solution extends the telemetry framework to Arm Coherent Mesh Network (CMN) interconnects, enabling system-level performance analysis beyond CPU cores.
