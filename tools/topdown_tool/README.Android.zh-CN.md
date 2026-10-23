@@ -1,8 +1,11 @@
 # Arm Top-Down tool：Android 设备 TMA 分析使用指南
 
-本指南介绍如何用 Arm Top-Down tool（`topdown-tool`）通过 `simpleperf` 对 Android 设备做 Topdown 微架构分析（TMA）。文中的命令和输出都在 Snapdragon 8 Gen 3（SM8650，Cortex-A520 ×2 + Cortex-A720 ×5 + Cortex-X4 ×1，Android 14，已 root）上实测过。
+本指南介绍如何用 Arm Top-Down tool（`topdown-tool`）通过 `simpleperf` 对 Android 设备做 Topdown 微架构分析（TMA）。文中的命令和输出在两台已 root 的设备上实测过：
 
-英文参考文档：[README.md](README.md)（总体用法）、[README.CPU.md](README.CPU.md)（CPU 探针选项）、[派生规范说明](../../data/pmu/cpu/specifications/derived/README.md)。
+- Snapdragon 8 Gen 3（SM8650）：Cortex-A520 ×2 + Cortex-A720 ×5 + Cortex-X4 ×1，Android 14。
+- 小米玄戒 O3：C1-Pro ×4 + C1-Premium ×4 + C1-Ultra ×2，Android 17。
+
+英文参考文档：[README.md](README.md)（总体用法）、[README.CPU.md](README.CPU.md)（CPU 探针选项）、[派生规范说明](../../data/pmu/cpu/specifications/derived/README.md)、[平台适配层说明](../../data/pmu/cpu/platforms/README.md)。
 
 ## 目录
 
@@ -16,17 +19,19 @@
 8. [大中小核注意事项](#8-大中小核注意事项)
 9. [解读结果](#9-解读结果)
 10. [派生规范的限制](#10-派生规范的限制)
-11. [其他 SoC 与 CPU 核](#11-其他-soc-与-cpu-核)
-12. [常见问题](#12-常见问题)
-13. [命令速查](#13-命令速查)
+11. [平台适配层](#11-平台适配层)
+12. [其他 SoC 与 CPU 核](#12-其他-soc-与-cpu-核)
+13. [常见问题](#13-常见问题)
+14. [命令速查](#14-命令速查)
 
 ## 1. 工作原理
 
 工具运行在 Linux 主机上，通过 adb（借助 devlib）控制设备：
 
 1. 读取每个 CPU 核的 MIDR，按核型分组（例如 A520 / A720 / X4），为每种核型加载对应的遥测规范（事件、指标、Topdown 决策树）。
-2. 按每种核型的可用计数器数量，把事件排成若干组，在设备上启动 `simpleperf stat` 计数。
-3. 采集结束后把 simpleperf 的输出拉回主机，校正多路复用，计算指标，并按核型分别输出表格或 CSV。
+2. 识别 SoC，按[平台适配层](#11-平台适配层)对规范做 SoC 相关的调整（没有匹配的 SoC 时不做任何调整）。
+3. 按每种核型的可用计数器数量，把事件排成若干组，在设备上启动 `simpleperf stat` 计数。
+4. 采集结束后把 simpleperf 的输出拉回主机，校正多路复用，计算指标，并按核型分别输出表格或 CSV。
 
 所有被测程序都运行在设备上，路径也是设备上的路径。
 
@@ -111,7 +116,7 @@ $ topdown-tool --cpu-list-cores
 └─────────────┴───────────────┘
 ```
 
-如果出现 `Unknown CPU at cores: ... (skipping capture)`，说明这种核没有遥测规范，见[第 11 节](#11-其他-soc-与-cpu-核)。
+如果出现 `Unknown CPU at cores: ... (skipping capture)`，说明这种核没有遥测规范，见[第 12 节](#12-其他-soc-与-cpu-核)。
 
 ## 5. 采集方式
 
@@ -185,7 +190,7 @@ topdown-tool -C 7         # 只统计 CPU 7
 
 ### 7.1 终端输出
 
-每种核型输出一段，标题是 `CPU Cortex-X4 metrics` 这样的格式。值显示为 ❌ 表示没有数据（原因见[第 12 节](#12-常见问题)）。
+每种核型输出一段，标题是 `CPU Cortex-X4 metrics` 这样的格式。值显示为 ❌ 表示没有数据（原因见[第 13 节](#13-常见问题)）。
 
 系统级采集时表格每个核占一列，终端较窄时列会被截断，可以加大宽度：
 
@@ -218,7 +223,7 @@ topdown-tool -p "$PID" -I 1000 --cpu-generate-csv metrics --csv-output-path out
 
 ### 7.4 调试文件
 
-工具会在当前目录写入 `perf-cli-<N>`（实际执行的 simpleperf 命令）和 `perf.stat.cpu.<核型>.*`（simpleperf 原始输出）。结果异常时可以先看这两个文件。设备上的临时文件在 `/sdcard/devlib-target/topdown_perf/`。
+工具会在当前目录为每种核型写入 `perf.stat.cpu.<核型>.<序号>.txt-<N>.cmd`（实际执行的 simpleperf 命令）和 `perf.stat.cpu.<核型>.<序号>.txt-<N>`（simpleperf 原始输出）。结果异常时可以先看这两个文件。设备上的临时文件在 `/sdcard/devlib-target/topdown_perf/`。
 
 ## 8. 大中小核注意事项
 
@@ -236,7 +241,9 @@ topdown-tool -p "$PID" -I 1000 --cpu-generate-csv metrics --csv-output-path out
 - benchmark：用 `taskset` 绑核（[5.1 节](#51-运行一个命令适合-benchmark)）。
 - App：延长采集时间，并在采集期间持续操作。也可以在 `/proc/<PID>/task/*` 上用 `taskset -p` 临时绑核，但这会改变 App 的真实行为。
 
-**计数器数量。** SM8650 每个核有 18 个可用于分组的硬件计数器，工具会自动探测。一些高通设备的内存延迟调节器（`arm-memlat-mon`）会占用 PMU 计数器。如果探测到的数量明显偏少，可以让 simpleperf 在采集期间暂时释放这些计数器：
+**计数器数量。** 工具会自动探测每个核可用于分组的硬件计数器数量。不同 SoC 差别很大：SM8650 每个核有 18 个；玄戒 O3 的厂商 PMU 驱动把大部分计数器留给了自己的 DVFS 驱动，Linux 只能用 7 个（另有一个专用的 cycle 计数器）。计数器越少，多路复用越多，同样的分析需要更长的运行时间，按进程采集时也更容易出现 ❌。玄戒 O3 的适配配置允许 CPU_CYCLES 使用专用的 cycle 计数器，每组可以多放一个事件，见[第 11 节](#11-平台适配层)。
+
+一些高通设备的内存延迟调节器（`arm-memlat-mon`）也会占用 PMU 计数器。如果探测到的数量明显偏少，可以让 simpleperf 在采集期间暂时释放这些计数器：
 
 ```sh
 topdown-tool --perf-args=--use-devfreq-counters -- taskset 80 ./bench
@@ -300,9 +307,36 @@ Arm 没有发布 Cortex-X4、Cortex-A720、Cortex-A520 的官方遥测规范。�
 
 调整的依据和实测数据见[派生规范说明](../../data/pmu/cpu/specifications/derived/README.md)。
 
-## 11. 其他 SoC 与 CPU 核
+## 11. 平台适配层
 
-**已有官方规范的核**（Cortex-X925、Cortex-A725、C1-Ultra/Premium/Pro/Nano 等，完整列表见 `data/pmu/cpu/mapping.json`）可以直接使用，步骤与本指南相同。
+同一种 CPU 核在不同 SoC 上的集成方式可能不同，例如没有集成可选的 SME2 单元、厂商驱动占用了 PMU 计数器，或者某个事件在这款 SoC 上的计数方式与规范不符。这些差异写在 `data/pmu/cpu/platforms/` 下的数据文件里，运行时叠加在规范之上，规范文件本身不改。设计原则是：**适配一款新 SoC 不会改变已适配 SoC 的结果**。
+
+- **特性规则**（`features.json`）：某个核在 `/proc/cpuinfo` 的 `Features` 里没有列出某项特性时，隐藏依赖该特性的指标。目前只有一条规则：没有 `sme` 时隐藏 SME2 相关指标。它只影响包含 SME2 事件的规范（C1/C2 系列），对 SM8650 等设备上的规范没有影响。
+- **SoC 配置**（`soc/*.json`）：按 Android 属性（`ro.soc.manufacturer`、`ro.soc.model`）或设备树 `compatible` 匹配。只有匹配的设备才会应用，没有匹配时行为与之前完全相同。
+
+用 `--log-level INFO` 可以看到选中了哪个配置、隐藏了哪些指标：
+
+```text
+[INFO] platform_adaptation:load - Using platform profile XRing O3 (.../platforms/soc/xring_o3.json)
+[INFO] platform_adaptation:adapt - C1-Pro: hiding 14 metric(s) (core has no 'sme'): ...
+[INFO] remote_simpleperf:has_cycle_counter - Dedicated cycle counter on core 0: yes
+```
+
+加 `--cpu-no-platform-adaptation` 可以关闭适配层，直接使用原始规范。
+
+**玄戒 O3 的适配内容**（实测数据见[平台适配层说明](../../data/pmu/cpu/platforms/README.md)）：
+
+| 内容 | 原因 | 效果 |
+|------|------|------|
+| 隐藏 14 个 SME2 指标（三种核型） | 没有 SME2 单元，这些事件恒为 0 | 指标不再显示 ❌，事件组减少 |
+| CPU_CYCLES 使用专用 cycle 计数器 | Linux 只有 7 个可编程计数器，每组最多 7 个事件 | 每组最多 8 个事件；完整分析的事件组从 32 个减到 26～28 个；`-c group` 不再报错 |
+| C1-Pro 隐藏 `backend_cache_l1d_bound` / `backend_cache_l2d_bound` | 数据在 DRAM 时 C1-Pro 的停顿大多被计为 L1D（78%），只有 13% 计为 MEM，拆分结果会把 DRAM 延迟误判为 L1D | 保留两者之和 `backend_mem_cache_bound` 和 L2/LL 缓存指标组 |
+
+适配后，三种核型绑核做完整分析时，唯一剩下的 ❌ 是没有 SVE 代码时的 3 个 SVE Predicate 指标。
+
+## 12. 其他 SoC 与 CPU 核
+
+**已有官方规范的核**（Cortex-X925、Cortex-A725、C1-Ultra/Premium/Pro/Nano 等，完整列表见 `data/pmu/cpu/mapping.json`）可以直接使用，步骤与本指南相同。建议先按下面第 3、4 步在新 SoC 上测一下，如有差异，新增一个 SoC 配置（步骤见[平台适配层说明](../../data/pmu/cpu/platforms/README.md)），而不是修改规范文件。
 
 **没有规范的核**（例如 Cortex-A510、A710、A715、X2、X3）会显示 `Unknown CPU at cores`。可以按以下步骤派生规范：
 
@@ -314,7 +348,7 @@ Arm 没有发布 Cortex-X4、Cortex-A720、Cortex-A520 的官方遥测规范。�
 
 详细说明和完整命令见[派生规范说明](../../data/pmu/cpu/specifications/derived/README.md)。
 
-## 12. 常见问题
+## 13. 常见问题
 
 **`Error: Insufficient privilege`**
 设备没有 root 权限。执行 `adb root`，或确认设备上有可用的 `su`。
@@ -323,7 +357,7 @@ Arm 没有发布 Cortex-X4、Cortex-A720、Cortex-A520 的官方遥测规范。�
 设备上找不到 simpleperf，或 `--perf-path` 指定的路径不对。检查 `adb shell simpleperf --version`。也可以用 `--perf-path /data/local/tmp/simpleperf` 指定其他版本（例如 NDK 自带的 simpleperf）。
 
 **`Unknown CPU at cores: ... (skipping capture)`**
-这种核没有遥测规范，见[第 11 节](#11-其他-soc-与-cpu-核)。
+这种核没有遥测规范，见[第 12 节](#12-其他-soc-与-cpu-核)。
 
 **某种核型的指标全部是 ❌**
 按进程采集时，进程没有在这种核型上运行，见[第 8 节](#8-大中小核注意事项)。
@@ -338,9 +372,9 @@ Arm 没有发布 Cortex-X4、Cortex-A720、Cortex-A520 的官方遥测规范。�
 多路复用的缩放误差和事件计数的微小差异会造成几个百分点的偏差。A720 的 `backend_cache_l1d_bound` / `backend_cache_l2d_bound` 见[第 10 节](#10-派生规范的限制)。
 
 **想知道工具实际执行了什么**
-看当前目录下的 `perf-cli-<N>` 和 `perf.stat.cpu.*` 文件，或加 `--log-level INFO`。
+看当前目录下的 `perf.stat.cpu.*.cmd`（命令）和 `perf.stat.cpu.*`（原始输出）文件，或加 `--log-level INFO`。
 
-## 13. 命令速查
+## 14. 命令速查
 
 ```sh
 # 设备
@@ -372,4 +406,10 @@ topdown-tool --cpu-events-modifiers u -- taskset 80 ./bench
 
 # 指定 simpleperf，传额外参数
 topdown-tool --perf-path /data/local/tmp/simpleperf --perf-args=--use-devfreq-counters -- ./bench
+
+# 查看平台适配层选中的配置和隐藏的指标
+topdown-tool --log-level INFO -s topdown -- taskset 80 ./bench
+
+# 关闭平台适配层，使用原始规范
+topdown-tool --cpu-no-platform-adaptation -- taskset 80 ./bench
 ```

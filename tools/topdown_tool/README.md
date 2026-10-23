@@ -204,6 +204,12 @@ They are marked as Development quality; see
 [data/pmu/cpu/specifications/derived/README.md](../../data/pmu/cpu/specifications/derived/README.md)
 for what was changed and how to derive a specification for another core.
 
+SoC-specific differences (missing optional units such as SME2, PMU counters reserved by vendor
+drivers, events that behave differently in one integration) are handled by the platform
+adaptation layer in [data/pmu/cpu/platforms](../../data/pmu/cpu/platforms/README.md), which
+only affects devices it matches. Use `--cpu-no-platform-adaptation` to use the specifications
+unchanged.
+
 Example: full topdown analysis of an app's main process, with per-second CSV metrics:
 
 ```sh
