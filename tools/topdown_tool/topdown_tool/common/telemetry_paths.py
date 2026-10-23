@@ -48,3 +48,8 @@ def telemetry_probe_schemas_dir(probe_name: str) -> Path:
 def telemetry_probe_mapping_file(probe_name: str) -> Path:
     """Return canonical mapping.json path for a probe."""
     return telemetry_root_dir() / probe_name.lower() / "mapping.json"
+
+
+def telemetry_probe_platforms_dir(probe_name: str) -> Path:
+    """Return the platform adaptation data directory for a probe."""
+    return telemetry_root_dir() / probe_name.lower() / "platforms"

@@ -1,0 +1,21 @@
+{
+    "name": "XRing O3",
+    "description": "Xiaomi XRing O3: 4x C1-Pro (cpu0-3), 4x C1-Premium (cpu4-7), 2x C1-Ultra (cpu8-9), no SME unit. The vendor PMU driver (xring,armv8-pmuv3) gives Linux perf 7 programmable counters plus the cycle counter; the others are reserved for the vendor DVFS driver. Measurements: data/pmu/cpu/platforms/README.md.",
+    "match": {
+        "android_properties": {
+            "ro.soc.manufacturer": "XRing",
+            "ro.soc.model": "O3"
+        }
+    },
+    "cycle_counter": true,
+    "cpus": {
+        "0x41d8b": {
+            "name": "C1-Pro",
+            "drop_metrics": [
+                "backend_cache_l1d_bound",
+                "backend_cache_l2d_bound"
+            ],
+            "reason": "STALL_BACKEND_MEM counts only ~13% of memory-bound cycles for DRAM-resident data (STALL_BACKEND_L1D ~78%), so the L1D/L2D split misattributes DRAM latency to L1D"
+        }
+    }
+}

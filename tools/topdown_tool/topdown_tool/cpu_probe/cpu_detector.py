@@ -7,7 +7,8 @@ import logging
 import os
 import sys
 from abc import ABC, abstractmethod
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import FrozenSet, Mapping, Optional, Tuple
 
 from topdown_tool.common import range_decode, remote_target_manager, unwrap
 from topdown_tool.common.devlib_types import Target
@@ -52,6 +53,18 @@ class CpuDetector(ABC):
             int: Raw MIDR value for the provided core.
         """
 
+    def cpu_features(self, core: int) -> Optional[FrozenSet[str]]:  # pylint: disable=unused-argument
+        """Return the CPU feature flags (Linux HWCAP names) of ``core``.
+
+        Returns ``None`` when unknown. Detectors that cannot read the features keep this default,
+        so feature-based adaptations are not applied.
+        """
+        return None
+
+    def platform_info(self) -> "PlatformInfo":
+        """Return SoC/board identification used to select a platform profile."""
+        return PlatformInfo()
+
     @staticmethod
     def cpu_id(midr: int) -> int:
         """Derive a compact CPU identifier from an MIDR value.
@@ -91,6 +104,61 @@ class CpuDetector(ABC):
             | (part_num << 4)
             | revision
         )
+
+
+def _cpuinfo_block(cpuinfo: str, core: int) -> Optional[str]:
+    """Return the ``/proc/cpuinfo`` block describing ``core``, if present."""
+    for candidate in (b.strip() for b in cpuinfo.split("\n\n") if b.strip()):
+        for line in candidate.splitlines():
+            if line.lower().startswith("processor"):
+                try:
+                    if int(line.split(":")[1].strip()) == core:
+                        return candidate
+                except Exception:  # pylint: disable=broad-exception-caught
+                    break
+    return None
+
+
+def _features_from_cpuinfo(cpuinfo: str, core: int) -> Optional[FrozenSet[str]]:
+    """Return the ``Features`` flags (HWCAPs) of ``core`` from a ``/proc/cpuinfo`` dump."""
+    block = _cpuinfo_block(cpuinfo, core)
+    if block is None:
+        return None
+    for line in block.splitlines():
+        key, _, value = line.partition(":")
+        if key.strip().lower() == "features":
+            return frozenset(value.split())
+    return None
+
+
+def _split_dt_strings(text: Optional[str]) -> Tuple[str, ...]:
+    """Split a device-tree string list (NUL- or whitespace-separated)."""
+    if not text:
+        return ()
+    return tuple(part for part in text.replace("\0", " ").split() if part)
+
+
+@dataclass(frozen=True)
+class PlatformInfo:
+    """Identification of the SoC/board, used to select a platform profile.
+
+    Attributes:
+        android_properties: Selected Android system properties (empty on Linux).
+        dt_compatible: Device-tree root ``compatible`` strings.
+    """
+
+    android_properties: Mapping[str, str] = field(default_factory=dict)
+    dt_compatible: Tuple[str, ...] = ()
+
+
+#: Android properties read to identify the SoC.
+ANDROID_PLATFORM_PROPERTIES = (
+    "ro.soc.manufacturer",
+    "ro.soc.model",
+    "ro.board.platform",
+    "ro.hardware",
+)
+DT_COMPATIBLE_PATH = "/sys/firmware/devicetree/base/compatible"
 
 
 def _midr_from_cpuinfo(cpuinfo: str, core: int) -> Optional[int]:
@@ -182,6 +250,20 @@ class LocalLinuxCpuDetector(CpuDetector):
 
         raise RuntimeError(f"Unable to read MIDR for core {core} from local Linux host")
 
+    def cpu_features(self, core: int) -> Optional[FrozenSet[str]]:
+        try:
+            with open("/proc/cpuinfo", encoding="utf-8") as cpuinfo_file:
+                return _features_from_cpuinfo(cpuinfo_file.read(), core)
+        except OSError:
+            return None
+
+    def platform_info(self) -> PlatformInfo:
+        try:
+            with open(DT_COMPATIBLE_PATH, encoding="utf-8", errors="ignore") as handle:
+                return PlatformInfo(dt_compatible=_split_dt_strings(handle.read()))
+        except OSError:
+            return PlatformInfo()
+
 
 class LocalWindowsCpuDetector(CpuDetector):
     """CpuDetector implementation for local Windows hosts."""
@@ -219,6 +301,7 @@ class RemoteLinuxLikeCpuDetector(CpuDetector):
         """
         super().__init__(perf_factory_instance)
         self._target = target
+        self._cpuinfo_cache: Optional[str] = None
 
     def cpu_count(self) -> int:
         """Return the logical CPU count for the remote target.
@@ -279,6 +362,30 @@ class RemoteLinuxLikeCpuDetector(CpuDetector):
 
         raise RuntimeError(f"Unable to read MIDR for core {core} from remote target")
 
+    def _cpuinfo(self) -> str:
+        if self._cpuinfo_cache is None:
+            self._cpuinfo_cache = remote_read_text(self._target, "/proc/cpuinfo") or ""
+        return self._cpuinfo_cache
+
+    def cpu_features(self, core: int) -> Optional[FrozenSet[str]]:
+        try:
+            return _features_from_cpuinfo(self._cpuinfo(), core)
+        except Exception:  # pylint: disable=broad-exception-caught
+            return None
+
+    def platform_info(self) -> PlatformInfo:
+        properties = {}
+        if getattr(self._target, "os", None) == "android":
+            for name in ANDROID_PLATFORM_PROPERTIES:
+                try:
+                    value = self._target.getprop(name)
+                except Exception:  # pylint: disable=broad-exception-caught
+                    value = None
+                if isinstance(value, str) and value.strip():
+                    properties[name] = value.strip()
+        compatible = _split_dt_strings(remote_read_text(self._target, DT_COMPATIBLE_PATH))
+        return PlatformInfo(android_properties=properties, dt_compatible=compatible)
+
 
 class CpuDetectorFactory:
     """Factory that selects the appropriate :class:`CpuDetector` for the environment."""
@@ -314,5 +421,6 @@ __all__ = [
     "CpuDetectorFactory",
     "LocalLinuxCpuDetector",
     "LocalWindowsCpuDetector",
+    "PlatformInfo",
     "RemoteLinuxLikeCpuDetector",
 ]

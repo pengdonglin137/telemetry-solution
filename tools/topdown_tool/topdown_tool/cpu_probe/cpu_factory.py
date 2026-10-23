@@ -35,6 +35,7 @@ Usage Example:
 import argparse
 from dataclasses import dataclass, field, replace
 import json
+import logging
 import os
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 from sys import platform
@@ -43,6 +44,7 @@ from rich.table import Table
 from topdown_tool.common import ArgsError, range_decode, unwrap
 from topdown_tool.common.telemetry_paths import (
     telemetry_probe_mapping_file,
+    telemetry_probe_platforms_dir,
     telemetry_probe_specifications_dir,
     telemetry_probe_schemas_dir,
 )
@@ -57,6 +59,7 @@ from topdown_tool.cpu_probe.cpu_detector import (
 )
 from topdown_tool.cpu_probe.cpu_model import TelemetrySpecification
 from topdown_tool.cpu_probe.cpu_probe import CpuProbe
+from topdown_tool.cpu_probe.platform_adaptation import PlatformAdaptation
 from topdown_tool.cpu_probe.windows_perf_parser import WindowsPerfParser
 from topdown_tool.perf.event_scheduler import CollectBy
 from topdown_tool.perf.mux_interval import parse_mux_interval, resolve_probe_mux_interval
@@ -114,6 +117,7 @@ class CpuProbeFactoryConfig:
     list_cores: bool = False
     csv_output_path: Optional[str] = None
     interval_ms: Optional[int] = None
+    platform_adaptation: bool = True
 
 
 class CpuProbeFactoryCliConfigBuilder(
@@ -154,6 +158,11 @@ class CpuProbeFactoryCliConfigBuilder(
             action="append",
             type=self._decode_sme_arg,
             help="Add an SME (Scalable Matrix Extension) telemetry specification for specific cores. Format: file.json:core-list (e.g., sme.json:0,2-3).",
+        )
+        spec_group.add_argument(
+            "--cpu-no-platform-adaptation",
+            action="store_true",
+            help="Use the telemetry specifications unchanged: do not hide metrics for missing CPU features or apply SoC profiles from data/pmu/cpu/platforms.",
         )
 
         # Specification inspection
@@ -347,6 +356,7 @@ class CpuProbeFactoryCliConfigBuilder(
             list_cores=getattr(args, "cpu_list_cores", False),
             csv_output_path=getattr(args, "csv_output_path", None),
             interval_ms=getattr(args, "interval", None),
+            platform_adaptation=not getattr(args, "cpu_no_platform_adaptation", False),
         )
 
     @staticmethod
@@ -391,6 +401,7 @@ class CpuProbeFactory(Base.ProbeFactory[CpuProbeFactoryConfig]):
     METRICS_DIR = str(telemetry_probe_specifications_dir("cpu"))
     SCHEMAS_DIR = str(telemetry_probe_schemas_dir("cpu"))
     MAPPING_FILE = str(telemetry_probe_mapping_file("cpu"))
+    PLATFORMS_DIR = str(telemetry_probe_platforms_dir("cpu"))
 
     @classmethod
     def _resolve_mapping_file(cls) -> str:
@@ -419,6 +430,7 @@ class CpuProbeFactory(Base.ProbeFactory[CpuProbeFactoryConfig]):
         self._factory_config: Optional[CpuProbeFactoryConfig] = None
         self._sme_overrides: List[Tuple[str, List[int]]] = []
         self._cpu_detector: Optional[CpuDetector] = None
+        self._adaptation: PlatformAdaptation = PlatformAdaptation.disabled()
 
     def name(self) -> str:
         """Return the name of the probe.
@@ -525,6 +537,8 @@ class CpuProbeFactory(Base.ProbeFactory[CpuProbeFactoryConfig]):
         self._update_midr_cpu_core_map(config.core_filter, self._cpu_detector)
         self._update_cpu_descriptions(config, self._cpu_detector)
         self._list_cpus(config.list_cores, self._cpu_detector)
+        self._adaptation = self._load_adaptation(config, self._cpu_detector)
+        runtime_conf.use_cycle_counter = self._adaptation.use_cycle_counter
 
         # PID tracking needs one perf process per core type. Backends that can restrict a PID
         # to a set of cores (simpleperf) support it with several core types or a core filter;
@@ -544,6 +558,35 @@ class CpuProbeFactory(Base.ProbeFactory[CpuProbeFactoryConfig]):
             or runtime_conf.cpu_list_metrics
             or runtime_conf.cpu_list_events
         )
+
+    def _load_adaptation(
+        self, config: CpuProbeFactoryConfig, cpu_detector: CpuDetector
+    ) -> PlatformAdaptation:
+        # Platform data problems must never prevent capture: fall back to unchanged specs.
+        if not config.platform_adaptation:
+            return PlatformAdaptation.disabled()
+        try:
+            return PlatformAdaptation.load(self.PLATFORMS_DIR, cpu_detector.platform_info())
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logging.getLogger(__name__).warning(
+                "Platform adaptation disabled: %s", exc
+            )
+            return PlatformAdaptation.disabled()
+
+    def _adapted_spec(
+        self, spec: TelemetrySpecification, midr: int, cores: Sequence[int]
+    ) -> TelemetrySpecification:
+        assert self._cpu_detector is not None
+        features = self._cpu_detector.cpu_features(cores[0]) if cores else None
+        try:
+            return self._adaptation.adapt(spec, self._cpu_detector.cpu_id(midr), features)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logging.getLogger(__name__).warning(
+                "Platform adaptation failed for %s, using the specification unchanged: %s",
+                spec.product_configuration.product_name,
+                exc,
+            )
+            return spec
 
     def _update_midr_cpu_core_map(
         self, core_filter: Optional[List[int]], cpu_detector: CpuDetector
@@ -696,7 +739,7 @@ class CpuProbeFactory(Base.ProbeFactory[CpuProbeFactoryConfig]):
                 cpu_probes.append(
                     CpuProbe(
                         self._conf,
-                        spec,
+                        self._adapted_spec(spec, midr, locations),
                         locations,
                         capture_data,
                         base_csv_dir,

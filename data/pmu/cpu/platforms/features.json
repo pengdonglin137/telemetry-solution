@@ -1,0 +1,33 @@
+{
+    "description": "Metrics that need a CPU feature are hidden on cores that do not report it in /proc/cpuinfo 'Features'. A rule only affects specifications that contain its events.",
+    "rules": [
+        {
+            "feature": "sme",
+            "description": "SME/SME2 unit (CME) events. They never count on cores integrated without an SME unit, so the metrics that use them are always empty.",
+            "events": [
+                "CYCLES_ARB_PENDING_CME",
+                "CYCLES_CME_ALLOC",
+                "SME_INST_SPEC",
+                "SM_ACTIVE_CYCLES",
+                "STALL_BACKEND_BUSY_CME",
+                "STALL_BACKEND_BUSY_CMEBOUND",
+                "STALL_BACKEND_BUSY_CME_ARB",
+                "STALL_BACKEND_BUSY_CME_CPUBOUND",
+                "STALL_BACKEND_ILOCK_FROM_CME",
+                "STALL_BACKEND_ILOCK_FROM_CME_FLAGS",
+                "STALL_BACKEND_ILOCK_FROM_CME_GPR",
+                "STALL_BACKEND_ILOCK_FROM_CME_PRED",
+                "STALL_BACKEND_ILOCK_TO_CME",
+                "STALL_BACKEND_ILOCK_TO_CME_FLAGS",
+                "STALL_BACKEND_ILOCK_TO_CME_GPR",
+                "STALL_BACKEND_ILOCK_TO_CME_PRED",
+                "STALL_BACKEND_MEM_CME",
+                "STALL_BACKEND_MEM_CME_BARRIER",
+                "STALL_BACKEND_MEM_CME_HZ_ON_CPU",
+                "STALL_BACKEND_MEM_CME_LSRT_FULL",
+                "STALL_BACKEND_MEM_CPU_HZ_ON_CME",
+                "ZA_ACTIVE"
+            ]
+        }
+    ]
+}
