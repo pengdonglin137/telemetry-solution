@@ -173,6 +173,8 @@ The remote options must be supplied on each invocation and they replace the loca
 
 ### Android devices (simpleperf)
 
+A step-by-step user guide in Chinese is available in [README.Android.zh-CN.md](README.Android.zh-CN.md) (Android 设备 TMA 分析使用指南).
+
 Android ships `simpleperf` instead of Linux `perf`. With `--target-type adb`, the tool counts
 with simpleperf by default: `/system/bin/simpleperf` if present, otherwise the copy bundled with
 devlib, which is pushed to the device. Select the backend explicitly with
